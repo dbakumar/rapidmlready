@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OMOP Spine Initializr</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8">
+  <div class="max-w-4xl mx-auto bg-white shadow rounded p-6">
+
+    <h1 class="text-2xl font-bold mb-4">OMOP Spine Initializr</h1>
+
+    <p class="text-gray-600 mb-6">Generate explainable SQL and Python/R code to build ML-ready datasets using longitudinal window-based methodology.</p>
+
+    <!-- Database -->
+    <label class="block mb-2 font-semibold">Database</label>
+    <select id="db" class="border p-2 mb-4 w-full">
+      <option value="postgres">PostgreSQL</option>
+      <option value="sqlserver">SQL Server</option>
+    </select>
+
+    <!-- Schema -->
+    <label class="block mb-2 font-semibold">Schema</label>
+    <input id="schema" value="cdm_synthea10" placeholder="e.g. cdm_synthea10" class="border p-2 mb-4 w-full"/>
+
+    <!-- Study years -->
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="font-semibold">Study Start Year</label>
+        <input id="startYear" value="2016" class="border p-2 w-full"/>
+      </div>
+      <div>
+        <label class="font-semibold">Study End Year</label>
+        <input id="endYear" value="2024" class="border p-2 w-full"/>
+      </div>
+    </div>
+
+    <!-- Condition -->
+    <label class="block mt-4 font-semibold">Exposure (Condition)</label>
+    <input id="exposure" value="Type 2 diabetes mellitus" class="border p-2 w-full"/>
+
+    <label class="block mt-4 font-semibold">Outcome</label>
+    <input id="outcome" value="Renal disorder due to type 2 diabetes mellitus" class="border p-2 w-full"/>
+
+    <!-- Windows -->
+    <div class="grid grid-cols-2 gap-4 mt-4">
+      <div>
+        <label class="font-semibold">Baseline (years)</label>
+        <select id="baselineYears" class="border p-2 w-full">
+          <option>1</option>
+          <option>3</option>
+          <option>5</option>
+        </select>
+      </div>
+      <div>
+        <label class="font-semibold">Outcome window (years)</label>
+        <select id="outcomeYears" class="border p-2 w-full">
+          <option>1</option>
+          <option>2</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Debug -->
+    <label class="block mt-4">
+      <input type="checkbox" id="debugMode" />
+      Generate DEBUG SQL (step-by-step, inspectable)
+    </label>
+
+    <!-- Generate -->
+    <button onclick="generate()" class="mt-6 bg-blue-600 text-white px-4 py-2 rounded">Generate Package</button>
+
+  </div>
+
+  <script src="generator.js?v=3"></script>
+</body>
+</html>
