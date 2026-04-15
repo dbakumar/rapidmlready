@@ -1,0 +1,243 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StudyConfig DSL v1",
+  "description": "Declarative schema for OMOP-based cohort and prediction studies. Defines the complete configuration needed to generate SQL and analysis scripts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "study_metadata",
+    "study_period",
+    "index_strategy",
+    "cohort_rules",
+    "outcome_rules",
+    "methodology",
+    "analysis_template"
+  ],
+  "properties": {
+    "study_metadata": {
+      "type": "object",
+      "description": "Study identification and description",
+      "required": ["study_id", "title"],
+      "properties": {
+        "study_id": {
+          "type": "string",
+          "description": "Unique identifier for the study",
+          "examples": ["diabetes_nephropathy_v1"]
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable study title",
+          "examples": ["Type 2 Diabetes to Nephropathy Prediction Model"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed study description and clinical rationale"
+        },
+        "version": {
+          "type": "string",
+          "description": "Study version",
+          "examples": ["1.0.0"]
+        }
+      }
+    },
+    "study_period": {
+      "type": "object",
+      "description": "Administrative study window",
+      "required": ["start_date", "end_date"],
+      "properties": {
+        "start_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Study start date (YYYY-MM-DD format)"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Study end date (YYYY-MM-DD format)"
+        }
+      }
+    },
+    "index_strategy": {
+      "type": "object",
+      "description": "How index dates are generated (single-index vs spine)",
+      "required": ["mode", "index_anchor_policy"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["single-index", "repeated-index-spine"],
+          "description": "single-index: one row per person. repeated-index-spine: multiple rows per person over time."
+        },
+        "index_anchor_policy": {
+          "type": "string",
+          "enum": ["first-qualifying-event", "nth-event", "era-start"],
+          "description": "How to determine t0: first qualifying event, nth qualifying event, or era-based start"
+        },
+        "index_step_days": {
+          "type": "integer",
+          "description": "For repeated-index mode: number of days between successive index dates (e.g., 365 for yearly)",
+          "examples": [365, 30, 7]
+        },
+        "max_intervals_per_person": {
+          "type": "integer",
+          "description": "Maximum number of index rows per person (e.g., 20 for 20 years of follow-up)",
+          "examples": [20, 10, 5]
+        }
+      }
+    },
+    "cohort_rules": {
+      "type": "array",
+      "description": "Rules that define cohort entry (exposure rules)",
+      "items": {
+        "$ref": "#/definitions/rule"
+      }
+    },
+    "outcome_rules": {
+      "type": "array",
+      "description": "Rules that define the outcome variable to predict",
+      "items": {
+        "$ref": "#/definitions/rule"
+      }
+    },
+    "windows": {
+      "type": "object",
+      "description": "Temporal windows for baseline lookback and outcome lookforward",
+      "properties": {
+        "baseline_days": {
+          "type": "integer",
+          "description": "Number of days to look back before index date for baseline features",
+          "examples": [365, 730, 1825]
+        },
+        "outcome_days": {
+          "type": "integer",
+          "description": "Number of days to look forward after index date for outcome observation",
+          "examples": [365, 730]
+        }
+      }
+    },
+    "exclusion_rules": {
+      "type": "array",
+      "description": "Rules that exclude persons or rows from the study",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule_id": { "type": "string" },
+          "rule_type": {
+            "type": "string",
+            "enum": ["pre-index-exclusion", "baseline-exclusion", "ever-before-exclusion"]
+          },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "censoring_rules": {
+      "type": "array",
+      "description": "Rules that censor follow-up (outcome occurs, death, observation end, etc.)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule_id": { "type": "string" },
+          "censor_type": {
+            "type": "string",
+            "enum": ["outcome-event", "death", "observation-period-end", "payer-plan-period-end", "administrative-end"],
+            "description": "What event causes censoring"
+          }
+        }
+      }
+    },
+    "methodology": {
+      "type": "string",
+      "description": "Study design methodology plugin ID (e.g., 'longitudinal-prediction', 'surveillance', 'case-control')",
+      "examples": ["longitudinal-prediction", "surveillance"]
+    },
+    "analysis_template": {
+      "type": "string",
+      "description": "Analysis script template plugin ID (e.g., 'logistic-regression', 'decision-tree', 'survival-analysis')",
+      "examples": ["logistic-regression", "decision-tree"]
+    },
+    "best_practice_mode": {
+      "type": "boolean",
+      "description": "Enable additional safety checks (unit harmonization, outlier filtering, prior outcome exclusion, etc.)",
+      "default": false
+    },
+    "database": {
+      "type": "object",
+      "properties": {
+        "dialect": {
+          "type": "string",
+          "enum": ["postgresql", "sqlserver"],
+          "description": "SQL dialect for code generation"
+        },
+        "schema": {
+          "type": "string",
+          "description": "OMOP CDM schema name",
+          "examples": ["cdm_synthea10", "datalake.omop"]
+        }
+      }
+    },
+    "output_artifacts": {
+      "type": "object",
+      "description": "What to generate and output",
+      "properties": {
+        "sql": { "type": "boolean", "description": "Generate executable SQL", "default": true },
+        "analysis_script": { "type": "boolean", "description": "Generate analysis script (run.py / run.R)", "default": true },
+        "manifest": { "type": "boolean", "description": "Generate JSON manifest", "default": true },
+        "summary": { "type": "boolean", "description": "Generate plain-language README.md", "default": true },
+        "attrition_report": { "type": "boolean", "description": "Generate attrition SQL and counts", "default": true },
+        "data_quality_report": { "type": "boolean", "description": "Generate data quality checks", "default": false }
+      }
+    }
+  },
+  "definitions": {
+    "rule": {
+      "type": "object",
+      "description": "A single inclusion/exclusion rule with domain and concept set",
+      "required": ["rule_id", "rule_type"],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "description": "Unique identifier for this rule"
+        },
+        "rule_type": {
+          "type": "string",
+          "enum": [
+            "AT_LEAST_N_EVENTS",
+            "VALUE_THRESHOLD",
+            "TEMPORAL_SEQUENCE",
+            "CONCEPT_SET",
+            "ENCOUNTER_CONTEXT",
+            "THERAPY_EXPOSURE",
+            "NLP_HIT",
+            "EXCLUSION"
+          ],
+          "description": "Type of rule from the rule DSL"
+        },
+        "source_domain": {
+          "type": "string",
+          "enum": [
+            "person",
+            "condition_occurrence",
+            "drug_exposure",
+            "procedure_occurrence",
+            "device_exposure",
+            "measurement",
+            "observation",
+            "note",
+            "note_nlp",
+            "visit_occurrence",
+            "visit_detail"
+          ],
+          "description": "OMOP domain this rule operates on"
+        },
+        "concept_set_id": {
+          "type": "string",
+          "description": "Reference to a named concept set (resolved separately)"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Rule-specific parameters (varies by rule type)",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}
