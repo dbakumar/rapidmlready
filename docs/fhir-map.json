@@ -1,0 +1,102 @@
+{
+  "title": "FHIR to OMOP Concept Mapping",
+  "description": "Reference mappings from FHIR resource types and code systems to OMOP CDM concept_ids and domains. This is a stub for Phase 4 implementation. Actual mappings will use USAGI or CMS/VA FHIR-to-OMOP converters.",
+  "version": "0.1.0",
+  "note": "Phase 4 will implement bidirectional FHIR JSON-LD import/export with full code system resolution (SNOMED-CT, LOINC, RxNorm, etc.). This stub documents the conceptual mapping.",
+  "fhir_versions": ["R4", "R5"],
+  "omop_version": "5.3",
+  "concept_domain_mappings": [
+    {
+      "fhir_resource": "Condition",
+      "fhir_status_binding": "http://hl7.org/fhir/condition-clinical",
+      "omop_domain": "condition_occurrence",
+      "omop_concept_class": "Clinical Finding",
+      "mapping_strategy": "SNOMED-CT code → OMOP condition_concept_id via concept_relationship (Maps to) hierarchy",
+      "example": {
+        "fhir_code": { "system": "http://snomed.info/sct", "code": "250415006" },
+        "description": "Proteinuria (SNOMED)",
+        "omop_concept_id": 4132881,
+        "omop_concept_name": "Proteinuria"
+      }
+    },
+    {
+      "fhir_resource": "Medication",
+      "fhir_code_system": "http://terminology.hl7.org/CodeSystem/rxnorm",
+      "omop_domain": "drug_exposure",
+      "omop_concept_class": "Drug",
+      "mapping_strategy": "SNOMED-CT (via implicit extension) or RxNorm code → OMOP drug_concept_id",
+      "example": {
+        "fhir_code": { "system": "http://terminology.hl7.org/CodeSystem/rxnorm", "code": "860975" },
+        "description": "Metformin HCl 500 mg Oral Tablet",
+        "omop_concept_id": 1550023,
+        "omop_concept_name": "Metformin 500 MG Oral Tablet"
+      }
+    },
+    {
+      "fhir_resource": "Observation",
+      "fhir_category": "laboratory",
+      "omop_domain": "measurement",
+      "omop_concept_class": "Lab Test",
+      "mapping_strategy": "LOINC code (via observation.code.coding[loinc]) → OMOP measurement_concept_id",
+      "example": {
+        "fhir_code": { "system": "http://loinc.org", "code": "2345-7" },
+        "description": "Glucose [Mass/volume] in Serum or Plasma",
+        "omop_concept_id": 3003963,
+        "omop_concept_name": "Glucose [Mass/volume] in Serum or Plasma"
+      }
+    },
+    {
+      "fhir_resource": "Encounter",
+      "fhir_class": "http://hl7.org/fhir/v3/ActCode",
+      "omop_domain": "visit_occurrence",
+      "omop_concept_class": "Visit",
+      "mapping_strategy": "Encounter.class (AMB/IMP/EMER/VR/etc.) → OMOP visit_type_concept_id",
+      "example": {
+        "fhir_class": "AMB",
+        "description": "Ambulatory",
+        "omop_visit_type_concept_id": 9202
+      }
+    },
+    {
+      "fhir_resource": "Procedure",
+      "fhir_code_system": "http://snomed.info/sct",
+      "omop_domain": "procedure_occurrence",
+      "omop_concept_class": "Procedure",
+      "mapping_strategy": "SNOMED-CT code → OMOP procedure_concept_id"
+    }
+  ],
+  "unit_conversions": {
+    "note": "Phase 4 will include unit harmonization for LOINC/UCUM units to standard OMOP unit_concept_ids",
+    "example_missing_unit_mapping": {
+      "loinc_code": "2345-7",
+      "unit_ucum": "mg/dL",
+      "omop_unit_concept_id": 3006426,
+      "omop_unit_concept_name": "mg/dL"
+    }
+  },
+  "status_mappings": {
+    "Condition.clinicalStatus": {
+      "active": "ongoing",
+      "recurrence": "ongoing",
+      "remission": "resolved",
+      "resolved": "resolved"
+    },
+    "Observation.status": {
+      "final": "measurement confirmed",
+      "preliminary": "measurement preliminary",
+      "amended": "measurement corrected",
+      "cancelled": "measurement error"
+    }
+  },
+  "temporal_handling": {
+    "note": "FHIR Date/DateTime → OMOP date fields (visit_start_date, condition_start_date, measurement_date, etc.)",
+    "example": "Observation.effectiveDateTime '2023-11-15T09:30:00' → measurement.measurement_date = 2023-11-15"
+  },
+  "phase_4_roadmap": [
+    "Implement FHIR Observation Bundle → OMOP Insert parser (JS + Python backends)",
+    "Implement FHIR JSON-LD import with full value set resolution via FHIR terminology server",
+    "Implement reverse mapping: OMOP result export as FHIR Observation Bundle",
+    "Add unit harmonization engine (UCUM → OMOP concept_ids)",
+    "Add care site / organization mapping"
+  ]
+}

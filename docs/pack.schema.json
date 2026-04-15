@@ -1,0 +1,203 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RapidML Community Pack Manifest",
+  "description": "Schema for a community-contributed plugin pack containing chart patterns, study methodologies, analysis templates, and concept sets",
+  "type": "object",
+  "required": ["id", "version", "owner", "name", "description"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Unique identifier for this pack (e.g., 'diabetes-nephropathy', 'pharmacoepidemiology-core')"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-z0-9-]+)?$",
+      "description": "Semantic version (e.g., '1.0.0', '2.1.0-beta.1')"
+    },
+    "owner": {
+      "type": "string",
+      "description": "Repository or organization owner (e.g., 'ohdsi-studies', 'northeastern-cds')"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Purpose and scope of this pack"
+    },
+    "license": {
+      "type": "string",
+      "enum": ["MIT", "Apache-2.0", "CC0-1.0", "CC-BY-4.0"],
+      "description": "License for reuse"
+    },
+    "authors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "institution": { "type": "string" }
+        }
+      }
+    },
+    "compatible_versions": {
+      "type": "object",
+      "properties": {
+        "rapidml_min": {
+          "type": "string",
+          "description": "Minimum RapidML version (e.g., '1.1.0')"
+        },
+        "rapidml_max": {
+          "type": "string",
+          "description": "Maximum RapidML version"
+        },
+        "omop_cdm": {
+          "type": "string",
+          "description": "OMOP CDM version (e.g., '5.3', '5.4')"
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "description": "Other packs required by this pack",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pack_id": { "type": "string" },
+          "min_version": { "type": "string" }
+        }
+      }
+    },
+    "concept_sets": {
+      "type": "array",
+      "description": "Reusable concept sets defined in this pack",
+      "items": {
+        "type": "object",
+        "required": ["concept_set_id", "name"],
+        "properties": {
+          "concept_set_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "concept_id": { "type": "integer" },
+                "include_descendants": { "type": "boolean", "default": true },
+                "exclude": { "type": "boolean", "default": false }
+              }
+            }
+          },
+          "research_note": { "type": "string" },
+          "provenance": { "type": "string", "description": "Source (e.g., 'OHDSI Phenotype Library', 'institutional derivation')" }
+        }
+      }
+    },
+    "cohort_patterns": {
+      "type": "array",
+      "description": "Named cohort rules (typically used for index/outcome definitions)",
+      "items": {
+        "type": "object",
+        "required": ["pattern_id", "name", "rule"],
+        "properties": {
+          "pattern_id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "rule": {
+            "type": "object",
+            "description": "Rule object per study-config.schema.json rule_definition"
+          },
+          "citations": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "methodologies": {
+      "type": "array",
+      "description": "Study methodologies provided by this pack",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "filepath"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "description": { "type": "string" },
+          "filepath": {
+            "type": "string",
+            "description": "Relative path to JS file exporting RapidML.Methodologies.register() call"
+          },
+          "experimental": { "type": "boolean" }
+        }
+      }
+    },
+    "analysis_templates": {
+      "type": "array",
+      "description": "Analysis templates (code generation) provided by this pack",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "language", "filepath"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "description": { "type": "string" },
+          "language": {
+            "type": "string",
+            "enum": ["python", "r", "sql", "java"],
+            "description": "Language for output code"
+          },
+          "filepath": {
+            "type": "string",
+            "description": "Relative path to JS file exporting RapidML.AnalysisTemplates.register() call"
+          },
+          "experimental": { "type": "boolean" }
+        }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "description": "Study configurations demonstrating this pack",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "config_filepath": {
+            "type": "string",
+            "description": "Relative path to example study config JSON"
+          },
+          "expected_cohort_size": { "type": "integer" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "description": "Validation or regression tests",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "config": { "type": "object" },
+          "assertions": { "type": "array" }
+        }
+      }
+    },
+    "registry_manifest": {
+      "type": "object",
+      "description": "Optional: cross-reference data for RapidML registry loader",
+      "properties": {
+        "index_url": { "type": "string" },
+        "download_url": { "type": "string" },
+        "checksum": { "type": "string" }
+      }
+    }
+  }
+}

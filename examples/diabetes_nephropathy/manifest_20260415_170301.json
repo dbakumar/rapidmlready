@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-04-15T22:03:01.742Z",
+  "methodology": "longitudinal-prediction",
+  "analysisTemplate": "logistic-regression",
+  "config": {
+    "db": "postgres",
+    "schema": "cdm_synthea10",
+    "outcomeConceptId": "443767",
+    "outcomeRule": {
+      "mode": "condition_occurrence",
+      "conceptId": "443767",
+      "measurementConceptId": "",
+      "measurementOperator": "<",
+      "measurementValue": ""
+    },
+    "startYear": "2016",
+    "endYear": "2024",
+    "baselineYears": "1",
+    "outcomeYears": "1",
+    "cohortEntryMode": "condition_lab_diff_visits",
+    "cohortEntry": {
+      "mode": "condition_lab_diff_visits",
+      "conditionConceptId": "201826",
+      "measurementConceptId": "3020460",
+      "measurementOperator": ">",
+      "measurementValue": "11.5"
+    },
+    "debug": true,
+    "bestPracticeMode": true
+  }
+}

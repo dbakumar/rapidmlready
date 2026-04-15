@@ -1,0 +1,236 @@
+{
+  "rule_primitives": [
+    {
+      "id": "AT_LEAST_N_EVENTS",
+      "label": "At least N events",
+      "description": "Require a minimum count of events (rows) in a domain within a time window",
+      "parameters": {
+        "min_events": {
+          "type": "integer",
+          "description": "Minimum number of events required"
+        },
+        "min_distinct_dates": {
+          "type": "boolean",
+          "description": "If true, count distinct event dates (not just row count)"
+        },
+        "min_distinct_visits": {
+          "type": "boolean",
+          "description": "If true, count distinct visit_occurrence_id values"
+        }
+      },
+      "example": {
+        "rule_id": "two_visit_phenotype",
+        "rule_type": "AT_LEAST_N_EVENTS",
+        "source_domain": "condition_occurrence",
+        "concept_set_id": "diabetes",
+        "parameters": {
+          "min_events": 2,
+          "min_distinct_visits": true
+        }
+      }
+    },
+    {
+      "id": "VALUE_THRESHOLD",
+      "label": "Value threshold",
+      "description": "Require measurement/observation values to meet a numeric threshold",
+      "parameters": {
+        "comparator": {
+          "type": "string",
+          "enum": [">", ">=", "<", "<=", "between"],
+          "description": "Comparison operator"
+        },
+        "value": {
+          "type": "number",
+          "description": "Threshold value (or lower bound if between)"
+        },
+        "value_upper": {
+          "type": "number",
+          "description": "Upper bound (if comparator is between)"
+        },
+        "unit_concept_ids": {
+          "type": "array",
+          "description": "Allowed unit_concept_id values (optional harmonization)",
+          "items": { "type": "integer" }
+        }
+      },
+      "example": {
+        "rule_id": "elevated_creatinine",
+        "rule_type": "VALUE_THRESHOLD",
+        "source_domain": "measurement",
+        "concept_set_id": "serum_creatinine",
+        "parameters": {
+          "comparator": ">",
+          "value": 1.5
+        }
+      }
+    },
+    {
+      "id": "TEMPORAL_SEQUENCE",
+      "label": "Temporal sequence",
+      "description": "Require one event to occur before another by X days",
+      "parameters": {
+        "min_days_before": {
+          "type": "integer",
+          "description": "Minimum days event A must precede event B"
+        },
+        "same_day_allowed": {
+          "type": "boolean",
+          "description": "If true, events on the same day satisfy the constraint"
+        },
+        "same_visit_required": {
+          "type": "boolean",
+          "description": "If true, both events must occur in the same visit"
+        }
+      }
+    },
+    {
+      "id": "CONCEPT_SET",
+      "label": "Concept set selection",
+      "description": "Select events by a named concept set with optional descendant expansion or exclusions",
+      "parameters": {
+        "include_descendants": {
+          "type": "boolean",
+          "description": "Include descendant concepts in addition to direct matches",
+          "default": true
+        },
+        "include_mapped": {
+          "type": "boolean",
+          "description": "Include source-to-concept-mapped values",
+          "default": false
+        },
+        "exclude_concept_ids": {
+          "type": "array",
+          "description": "Explicitly exclude these concept IDs",
+          "items": { "type": "integer" }
+        },
+        "validity": {
+          "type": "string",
+          "enum": ["valid-only", "include-invalid"],
+          "description": "Whether to require invalid_reason IS NULL"
+        }
+      }
+    },
+    {
+      "id": "ENCOUNTER_CONTEXT",
+      "label": "Encounter context",
+      "description": "Filter events by visit type (inpatient, outpatient, ED, etc.)",
+      "parameters": {
+        "visit_type_concept_ids": {
+          "type": "array",
+          "description": "Allowed visit_type_concept_id values",
+          "items": { "type": "integer" }
+        },
+        "provider_specialty_concept_ids": {
+          "type": "array",
+          "description": "Filter by provider specialty",
+          "items": { "type": "integer" }
+        },
+        "care_site_ids": {
+          "type": "array",
+          "description": "Filter by care_site_id",
+          "items": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "id": "THERAPY_EXPOSURE",
+      "label": "Therapy/medication exposure",
+      "description": "Filter drug exposures by route, dose, refill pattern, or era-based logic",
+      "parameters": {
+        "exclude_routes": {
+          "type": "array",
+          "description": "Exclude routes (e.g., topical, inhaled)",
+          "items": { "type": "string" }
+        },
+        "min_refills": {
+          "type": "integer",
+          "description": "Minimum number of refills required"
+        },
+        "use_era": {
+          "type": "boolean",
+          "description": "Use drug_era table (combines overlapping exposures) instead of raw drug_exposure"
+        },
+        "dose_range": {
+          "type": "object",
+          "properties": {
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "unit": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "id": "NLP_HIT",
+      "label": "NLP note concept hit",
+      "description": "Require concept mentions in clinical notes with optional negation/uncertainty filters",
+      "parameters": {
+        "note_nlp_concept_ids": {
+          "type": "array",
+          "description": "Concept IDs to search in note_nlp",
+          "items": { "type": "integer" }
+        },
+        "exclude_negated": {
+          "type": "boolean",
+          "description": "Exclude mentions marked as negated (if available)"
+        },
+        "exclude_uncertain": {
+          "type": "boolean",
+          "description": "Exclude mentions marked as uncertain (if available)"
+        },
+        "min_mentions": {
+          "type": "integer",
+          "description": "Minimum number of mentions required"
+        }
+      }
+    },
+    {
+      "id": "EXCLUSION",
+      "label": "Exclusion rule",
+      "description": "Exclude persons or rows based on a condition (prior disease, medication, etc.)",
+      "parameters": {
+        "exclusion_scope": {
+          "type": "string",
+          "enum": ["pre-index-ever", "baseline-period", "any-before-index"],
+          "description": "When to apply the exclusion: ever before index, during baseline, or anytime before index"
+        },
+        "event_type": {
+          "type": "string",
+          "description": "The condition/event that triggers exclusion"
+        }
+      }
+    }
+  ],
+  "operators": [
+    {
+      "id": "AND",
+      "description": "All rules must be satisfied"
+    },
+    {
+      "id": "OR",
+      "description": "At least one rule must be satisfied"
+    },
+    {
+      "id": "NOT",
+      "description": "Rule must NOT be satisfied"
+    }
+  ],
+  "temporal_anchors": [
+    {
+      "id": "baseline_start",
+      "description": "Start of baseline window relative to index_date"
+    },
+    {
+      "id": "baseline_end",
+      "description": "End of baseline window relative to index_date"
+    },
+    {
+      "id": "outcome_start",
+      "description": "Start of outcome observation window"
+    },
+    {
+      "id": "outcome_end",
+      "description": "End of outcome observation window"
+    }
+  ]
+}

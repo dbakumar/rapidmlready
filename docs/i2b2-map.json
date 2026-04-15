@@ -1,0 +1,123 @@
+{
+  "title": "i2b2/ONT to OMOP Concept Mapping",
+  "description": "Reference mappings from i2b2 ontology (clinical element categories) and i2b2 fact tables to OMOP CDM domains. This is a stub for Phase 4 implementation. Actual ETL will use i2b2-to-OMOP converters and hierarchical concept mapping.",
+  "version": "0.1.0",
+  "note": "Phase 4 will implement ETL from i2b2 PostgreSQL instances (observation_fact, patient_dimension, visit_dimension) to OMOP via SQL mapping queries. This stub documents the conceptual equivalences.",
+  "i2b2_versions": ["1.7.x", "1.8.x"],
+  "omop_version": "5.3",
+  "table_mappings": [
+    {
+      "i2b2_table": "observation_fact",
+      "i2b2_key_column": "concept_cd",
+      "omop_target_domain": "measurement | condition_occurrence | drug_exposure | procedure_occurrence",
+      "mapping_logic": "concept_cd (ICD-9/ICD-10/SNOMED/LOINC prefix) → OMOP domain-specific concept_id",
+      "example": {
+        "i2b2_concept_cd": "ICD10:E11.9",
+        "description": "Type 2 diabetes without complications",
+        "omop_domain": "condition_occurrence",
+        "omop_concept_id": 201820,
+        "omop_concept_name": "Type 2 diabetes mellitus without complications"
+      }
+    },
+    {
+      "i2b2_table": "patient_dimension",
+      "i2b2_key_column": "patient_num, sex_cd, age_in_years_num",
+      "omop_target": "person table (person_id, gender_concept_id, year_of_birth)",
+      "mapping_logic": "patient_num → person_id; sex_cd → gender_concept_id (M/F/U/O)"
+    },
+    {
+      "i2b2_table": "visit_dimension",
+      "i2b2_key_column": "visit_num, inout_cd, patient_num",
+      "omop_target": "visit_occurrence table",
+      "mapping_logic": "visit_num → visit_occurrence_id; inout_cd (E/I/A) → visit_type_concept_id; encounter_num cross-reference"
+    },
+    {
+      "i2b2_table": "modifier_dimension",
+      "omop_target": "measurement.value_as_concept_id (if categorical) or measurement.value_as_number (if numeric)",
+      "mapping_logic": "Qualifier/modifier codes → OMOP concept hierarchy"
+    }
+  ],
+  "concept_cd_prefix_mappings": {
+    "ICD9": {
+      "omop_domain": "condition_occurrence",
+      "mapping": "ICD9 code → ICD9 vocabulary_id in OMOP, then via concept_relationship Maps-to SNOMED",
+      "example": "ICD9:250.00 (diabetes) → SNOMED:250395005 → omop_concept_id:201820"
+    },
+    "ICD10": {
+      "omop_domain": "condition_occurrence",
+      "mapping": "ICD10 code → ICD10 vocabulary_id in OMOP, then via concept_relationship Maps-to SNOMED",
+      "example": "ICD10:E11.9 → SNOMED:44054006 → omop_concept_id:201820"
+    },
+    "SNOMED": {
+      "omop_domain": "condition_occurrence | procedure_occurrence",
+      "mapping": "SNOMED code direct match to OMOP SNOMED vocabulary"
+    },
+    "LOINC": {
+      "omop_domain": "measurement",
+      "mapping": "LOINC code direct match to OMOP LOINC vocabulary"
+    },
+    "RxNorm": {
+      "omop_domain": "drug_exposure",
+      "mapping": "RxNorm code direct match to OMOP RxNorm vocabulary"
+    },
+    "LOCAL": {
+      "omop_domain": "custom concept_ids",
+      "mapping": "i2b2 LOCAL: codes must be pre-mapped to OMOP via institutional ontology bridge"
+    }
+  },
+  "temporal_mapping": {
+    "note": "i2b2 stores start_date/end_date in observation_fact; these map directly to OMOP date fields",
+    "i2b2_columns": ["start_date", "end_date"],
+    "omop_target": {
+      "measurement": ["measurement_date"],
+      "condition_occurrence": ["condition_start_date", "condition_end_date"],
+      "drug_exposure": ["drug_exposure_start_date", "drug_exposure_end_date"]
+    }
+  },
+  "value_mappings": {
+    "i2b2_observation_fact.tval_char": {
+      "description": "Text/categorical values in i2b2",
+      "omop_target": "measurement.value_as_concept_id (enumerated values) or measurement.value_source_value (string)",
+      "example": {
+        "tval_char": "Y",
+        "omop_mapping": "concept_id 4188539 (Yes)"
+      }
+    },
+    "i2b2_observation_fact.nval_num": {
+      "description": "Numeric values",
+      "omop_target": "measurement.value_as_number",
+      "example": {
+        "nval_num": 120.5,
+        "units": "mmHg",
+        "omop_mapping": "value_as_number=120.5, unit_concept_id=..."
+      }
+    }
+  },
+  "units_and_normalization": {
+    "note": "i2b2 UNITS_CD field → OMOP unit_concept_id via SNOMED or UCUM mapping",
+    "challenge": "i2b2 units may be non-standard; Phase 4 ETL must normalize",
+    "example": {
+      "i2b2_units_cd": "mg/dL",
+      "omop_unit_concept_id": 3006426
+    }
+  },
+  "hierarchical_concept_handling": {
+    "note": "i2b2 ontology paths (e.g., \\Actvities\\Lab\\Chemistry\\Glucose\\) → OMOP concept_ancestor relationships",
+    "i2b2_tool": "Uses i2b2 ontology loader to parse concept paths",
+    "omop_requirement": "Load parent concepts and generate concept_ancestor relationships"
+  },
+  "phase_4_roadmap": [
+    "Create i2b2 PostgreSQL → OMOP INSERT mapping SQL (domain-specific per table)",
+    "Implement concept_cd prefix parser (ICD9/ICD10/SNOMED/LOINC/LOCAL)",
+    "Implement unit normalization: i2b2 UNITS_CD → SNOMED UCUM → OMOP concept_id",
+    "Implement hierarchical concept ingest: i2b2 path → OMOP concept_ancestor",
+    "Add gender/age mapping validation (OMOP person constraints)",
+    "Add observation_fact → visit_occurrence linkage validation"
+  ],
+  "known_challenges": [
+    "LOCAL: codes require institutional ontology mapping; cannot auto-convert without domain knowledge",
+    "Units: i2b2 allows free-text units; must harmonize before OMOP load",
+    "Missing values: i2b2 null semantics may differ from OMOP; requires ETL logic decision",
+    "Hierarchies: i2b2 path structure not fully representable in OMOP; concept_ancestor is partial approximation"
+  ]
+}
