@@ -212,19 +212,192 @@
   //  Plugin definition
   // ---------------------------------------------------------------
 
+  /**
+   * Build the repeated-index window expressions.
+   * These use `nums.n` to create yearly offsets from the anchor.
+   */
+  function buildWindowExpressions(config) {
+    var d = RapidML.Compiler.Dialects;
+    var db = config.db;
+    var baselineDays = String(Number(config.baselineYears) * 365);
+    var outcomeDays  = String(Number(config.outcomeYears) * 365);
+
+    return {
+      baselineDays: baselineDays,
+      outcomeDays: outcomeDays,
+      firstIndexDateExpr: d.addDaysExpr(db, "a.exposure_index_date", baselineDays),
+      indexDateExpr:      d.addYearsExpr(db, "a.first_index_date", "nums.n"),
+      baselineStartExpr:  d.addDaysExpr(db, "a.first_index_date", "(nums.n * 365) - " + baselineDays),
+      baselineEndExpr:    d.addDaysExpr(db, "a.first_index_date", "(nums.n * 365) - 1"),
+      outcomeStartExpr:   d.addYearsExpr(db, "a.first_index_date", "nums.n"),
+      outcomeEndExpr:     d.addDaysExpr(db, d.addYearsExpr(db, "a.first_index_date", "nums.n"), outcomeDays)
+    };
+  }
+
+  /** Build the spine CTE — repeated yearly windows via nums series */
+  function buildSpineCTE(config, ctx, windowExpr) {
+    var C = RapidML.Compiler;
+    return C.sqlLines([
+      "-- Build repeated yearly index windows per person",
+      "spine AS (",
+      "  SELECT",
+      "    a.person_id,",
+      "    a.t0,",
+      "    a.exposure_index_date,",
+      "    " + windowExpr.indexDateExpr + " AS index_date,",
+      "    " + windowExpr.baselineStartExpr + " AS baseline_start,",
+      "    " + windowExpr.baselineEndExpr + " AS baseline_end,",
+      "    " + windowExpr.outcomeStartExpr + " AS outcome_start,",
+      "    " + windowExpr.outcomeEndExpr + " AS outcome_end",
+      "  FROM index_anchor a",
+      "  JOIN nums ON " + windowExpr.outcomeEndExpr + " <= " + ctx.studyEnd,
+      ")"
+    ]);
+  }
+
+  // ---------------------------------------------------------------
+  //  PRODUCTION SQL — single CTE pipeline
+  // ---------------------------------------------------------------
+
+  function buildProductionSQL(config) {
+    var C = RapidML.Compiler;
+    var d = C.Dialects;
+    var ctx = C.prepareContext(config);
+    var windowExpr = buildWindowExpressions(config);
+    var numsCTE = d.seriesCTE(config.db, "nums", 20);
+
+    var ctes = C.buildConceptCTEs(config, ctx).concat([
+      C.buildCohortCTE(config, ctx),
+      C.buildAnchorCTE(config, ctx, windowExpr.baselineDays),
+      numsCTE,
+      buildSpineCTE(config, ctx, windowExpr),
+      C.buildFirstOutcomeCTE(config, ctx),
+      C.buildCensoredSpineCTE(config, ctx)
+    ]);
+
+    var sel = C.buildFinalSelect(config, ctx);
+
+    return C.sqlLines([
+      C.buildHeader(config, "Longitudinal Prediction (repeated-index spine)"),
+      C.buildPerformanceHints(config),
+      "WITH " + ctes.join(",\n"),
+      "SELECT",
+      "  " + sel.columns.join(",\n  "),
+      "FROM final_spine s",
+      sel.joins.join("\n"),
+      "ORDER BY s.person_id, s.index_date;"
+    ]);
+  }
+
+  // ---------------------------------------------------------------
+  //  DEBUG SQL — step-by-step temp tables
+  // ---------------------------------------------------------------
+
+  function buildDebugSQL(config) {
+    var C = RapidML.Compiler;
+    var d = C.Dialects;
+    var ctx = C.prepareContext(config);
+    var dbg = C.buildDebugHelpers(config, ctx);
+    var windowExpr = buildWindowExpressions(config);
+    var numsCTE = d.seriesCTE(config.db, "nums", 20);
+    var isPostgres = ctx.isPostgres;
+
+    // Steps 1-5: concepts, cohort (shared with compiler)
+    var conceptSteps = C.buildDebugConceptSteps(config, ctx, dbg);
+    var cohortStep = C.buildDebugCohortStep(config, ctx, dbg);
+
+    // Step 6: index anchor
+    var anchorStep = C.sqlLines([
+      "",
+      "-- STEP 6: Build index anchor (respect study start and baseline offset)",
+      dbg.dropTemp("index_anchor"),
+      dbg.createTempFromSelect(
+        "index_anchor",
+        [
+          "  c.person_id,",
+          "  c.t0,",
+          "  CASE",
+          "    WHEN c.t0 < " + ctx.studyStart + " THEN " + ctx.studyStart,
+          "    ELSE c.t0",
+          "  END AS exposure_index_date,",
+          "  " + windowExpr.firstIndexDateExpr + " AS first_index_date"
+        ].join("\n"),
+        "FROM " + dbg.tmpName("cohort") + " c"
+      ),
+      dbg.selectTop(dbg.tmpName("index_anchor"), "person_id")
+    ]);
+
+    // Step 7: repeated yearly spine (methodology-specific)
+    var spineStep = C.sqlLines([
+      "",
+      "-- STEP 7: Build repeated yearly spine rows",
+      dbg.dropTemp("spine"),
+      (isPostgres
+        ? C.sqlLines([
+            "CREATE TEMP TABLE " + dbg.tmpName("spine") + " AS",
+            "WITH " + numsCTE,
+            "SELECT",
+            "  a.person_id,",
+            "  a.t0,",
+            "  a.exposure_index_date,",
+            "  " + windowExpr.indexDateExpr + " AS index_date,",
+            "  " + windowExpr.baselineStartExpr + " AS baseline_start,",
+            "  " + windowExpr.baselineEndExpr + " AS baseline_end,",
+            "  " + windowExpr.outcomeStartExpr + " AS outcome_start,",
+            "  " + windowExpr.outcomeEndExpr + " AS outcome_end",
+            "FROM " + dbg.tmpName("index_anchor") + " a",
+            "JOIN nums ON " + windowExpr.outcomeEndExpr + " <= " + ctx.studyEnd + ";"
+          ])
+        : C.sqlLines([
+            "WITH " + numsCTE + ",",
+            "spine_src AS (",
+            "  SELECT",
+            "    a.person_id,",
+            "    a.t0,",
+            "    a.exposure_index_date,",
+            "    " + windowExpr.indexDateExpr + " AS index_date,",
+            "    " + windowExpr.baselineStartExpr + " AS baseline_start,",
+            "    " + windowExpr.baselineEndExpr + " AS baseline_end,",
+            "    " + windowExpr.outcomeStartExpr + " AS outcome_start,",
+            "    " + windowExpr.outcomeEndExpr + " AS outcome_end",
+            "  FROM " + dbg.tmpName("index_anchor") + " a",
+            "  JOIN nums ON " + windowExpr.outcomeEndExpr + " <= " + ctx.studyEnd,
+            ")",
+            "SELECT * INTO " + dbg.tmpName("spine") + " FROM spine_src;"
+          ])),
+      "SELECT COUNT(*) AS spine_rows FROM " + dbg.tmpName("spine") + ";"
+    ]);
+
+    // Steps 8-10: outcome, censoring, final (shared)
+    var outcomeStep = C.buildDebugOutcomeStep(config, ctx, dbg, 8);
+    var censorStep  = C.buildDebugCensoringStep(config, ctx, dbg, 9, dbg.tmpName("spine"));
+    var finalStep   = C.buildDebugFinalStep(config, ctx, dbg, 10);
+
+    return C.sqlLines([
+      C.buildHeader(config, "Longitudinal Prediction DEBUG (repeated-index spine)"),
+      conceptSteps,
+      cohortStep,
+      anchorStep,
+      spineStep,
+      outcomeStep,
+      censorStep,
+      finalStep
+    ]);
+  }
+
   var longitudinalPredictionMethodology = {
     id: "longitudinal-prediction",
     label: "Longitudinal prediction (default)",
 
     /**
-     * Generate SQL by delegating to the OMOP compiler.
-     * The compiler builds the full CTE pipeline (or debug temp-table script).
+     * Generate SQL — this methodology owns the repeated-index spine.
+     * Uses compiler building blocks for concepts, cohort, censoring, covariates.
      */
     buildSQL: function (config) {
-      if (RapidML.Compiler && typeof RapidML.Compiler.compileStudy === "function") {
-        return RapidML.Compiler.compileStudy(config);
+      if (config.debug) {
+        return buildDebugSQL(config);
       }
-      throw new Error("Compiler not loaded for longitudinal-prediction methodology.");
+      return buildProductionSQL(config);
     },
 
     /**
