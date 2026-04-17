@@ -107,17 +107,15 @@
    */
   function buildAnchorCTE(config, ctx, baselineDays) {
     var d = ctx.d;
-    var firstIndexDateExpr = d.addDaysExpr(config.db, "c.exposure_index_date", baselineDays);
+    var exposureExpr = "(CASE WHEN c.t0 < " + ctx.studyStart + " THEN " + ctx.studyStart + " ELSE c.t0 END)";
+    var firstIndexDateExpr = d.addDaysExpr(config.db, exposureExpr, baselineDays);
     return sqlLines([
       "-- Anchor each person to study start boundary and first prediction date",
       "index_anchor AS (",
       "  SELECT",
       "    c.person_id,",
       "    c.t0,",
-      "    CASE",
-      "      WHEN c.t0 < " + ctx.studyStart + " THEN " + ctx.studyStart,
-      "      ELSE c.t0",
-      "    END AS exposure_index_date,",
+      exposureExpr + " AS exposure_index_date,",
       "    " + firstIndexDateExpr + " AS first_index_date",
       "  FROM cohort c",
       ")"
@@ -143,11 +141,12 @@
 
     return sqlLines([
       "-- Apply outcome and observation-period censoring" + (config.study && config.study.exclusions && config.study.exclusions.length ? " + exclusions" : ""),
+      "-- Uses EXISTS for observation_period to avoid row duplication",
+      "-- when a patient has multiple overlapping observation periods.",
       "final_spine AS (",
       "  SELECT s.*",
       "  FROM spine s",
       "  LEFT JOIN first_outcome o ON s.person_id = o.person_id",
-      "  JOIN " + config.schema + ".observation_period op ON s.person_id = op.person_id",
       "  WHERE " + censorWhere,
       ")"
     ]);
@@ -348,16 +347,66 @@
 
   /** Censoring debug step */
   function buildDebugCensoringStep(config, ctx, dbg, stepNum, spineTableName) {
+    var censorWhere = RapidML.Compiler.Censoring.buildCensoringWhere(config);
+    var exclusionWhere = ctx.adapter.buildExclusionWhere(config);
+    if (exclusionWhere) {
+      censorWhere = censorWhere + "\n    AND " + exclusionWhere;
+    }
+
+    // Build exclusion concept CTEs for inline WITH clause
+    var exclCTEs = [];
+    if (config.study && config.study.exclusions) {
+      config.study.exclusions.forEach(function(exc, i) {
+        if (exc.descendants && exc.type !== "lab") {
+          var cid = String(exc.conceptId || "0").replace(/[^0-9]/g, "") || "0";
+          exclCTEs.push(
+            "excl_" + i + "_concepts AS (\n" +
+            "  SELECT descendant_concept_id AS concept_id\n" +
+            "  FROM " + config.schema + ".concept_ancestor\n" +
+            "  WHERE ancestor_concept_id = " + cid + "\n" +
+            ")"
+          );
+        }
+      });
+    }
+
+    var withClause = exclCTEs.length > 0 ? "WITH " + exclCTEs.join(",\n") + "\n" : "";
+    var isPostgres = ctx.isPostgres;
+    var name = dbg.tmpName("final_spine");
+    var hasExcl = config.study && config.study.exclusions && config.study.exclusions.length;
+    var stepComment = "-- STEP " + stepNum + ": Apply censoring rules (outcome, observation period, study end" + (hasExcl ? ", exclusions" : "") + ")";
+
+    var fromWhere = sqlLines([
+      "-- Uses EXISTS for observation_period to avoid row duplication",
+      "-- when a patient has multiple overlapping observation periods.",
+      "FROM " + spineTableName + " s",
+      "LEFT JOIN " + dbg.tmpName("first_outcome") + " o ON s.person_id = o.person_id",
+      "WHERE " + censorWhere
+    ]);
+
+    var createSql;
+    if (isPostgres) {
+      createSql = sqlLines([
+        "CREATE TEMP TABLE " + name + " AS",
+        withClause + "SELECT",
+        "  s.*, o.outcome_date AS first_outcome_date",
+        fromWhere + ";"
+      ]);
+    } else {
+      createSql = sqlLines([
+        withClause + "SELECT",
+        "  s.*, o.outcome_date AS first_outcome_date",
+        "INTO " + name,
+        fromWhere + ";"
+      ]);
+    }
+
     return sqlLines([
       "",
-      "-- STEP " + stepNum + ": Apply censoring rules (outcome, observation period, study end)",
+      stepComment,
       dbg.dropTemp("final_spine"),
-      dbg.createTempFromSelect(
-        "final_spine",
-        "  s.*, o.outcome_date AS first_outcome_date",
-        "FROM " + spineTableName + " s\nLEFT JOIN " + dbg.tmpName("first_outcome") + " o ON s.person_id = o.person_id\nJOIN " + config.schema + ".observation_period op ON s.person_id = op.person_id\nWHERE " + RapidML.Compiler.Censoring.buildCensoringWhere(config)
-      ),
-      "SELECT COUNT(*) AS final_spine_rows FROM " + dbg.tmpName("final_spine") + ";"
+      createSql,
+      "SELECT COUNT(*) AS final_spine_rows FROM " + name + ";"
     ]);
   }
 

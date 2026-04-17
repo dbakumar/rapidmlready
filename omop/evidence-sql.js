@@ -385,12 +385,14 @@
     var rows = block.rows;
     var match = block.match || "all";
 
-    // Single row — inline directly
+    // Single row — inline directly, renaming event_date to expected alias
     if (rows.length === 1) {
       return sqlLines([
         "-- " + cteName + ": single evidence row (" + rows[0].type + ")",
         cteName + " AS (",
+        "  SELECT person_id, event_date AS " + dateCol + " FROM (",
         "  " + buildRowEventSubquery(config, rows[0], blockPrefix + "_r0"),
+        "  ) _single",
         ")"
       ]);
     }

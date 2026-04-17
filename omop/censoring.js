@@ -36,10 +36,17 @@
     var d = RapidML.Compiler.Dialects;
     var studyEnd = d.quoteDateLiteral(db, config.endYear, 12, 31);
 
+    // Use EXISTS for observation_period instead of JOIN to prevent
+    // row duplication when a patient has multiple overlapping
+    // observation_period records covering the same time window.
     return [
       "(o.outcome_date IS NULL OR s.outcome_start <= o.outcome_date)",
-      "s.baseline_start >= op.observation_period_start_date",
-      "s.outcome_end <= op.observation_period_end_date",
+      "EXISTS (\n" +
+      "      SELECT 1 FROM " + config.schema + ".observation_period op\n" +
+      "      WHERE op.person_id = s.person_id\n" +
+      "        AND s.baseline_start >= op.observation_period_start_date\n" +
+      "        AND s.outcome_end <= op.observation_period_end_date\n" +
+      "    )",
       "s.outcome_end <= " + studyEnd
     ].join("\n    AND ");
   }

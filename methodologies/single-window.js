@@ -125,6 +125,11 @@
     var cohortStep = C.buildDebugCohortStep(config, ctx, dbg);
 
     // Step 6: index anchor
+    // Must inline the CASE expression for exposure_index_date because
+    // PostgreSQL cannot reference a column alias within the same SELECT.
+    var d = RapidML.Compiler.Dialects;
+    var exposureExpr = "(CASE WHEN c.t0 < " + ctx.studyStart + " THEN " + ctx.studyStart + " ELSE c.t0 END)";
+    var anchorFirstIndexExpr = d.addDaysExpr(config.db, exposureExpr, windowExpr.baselineDays);
     var anchorStep = C.sqlLines([
       "",
       "-- STEP 6: Build index anchor",
@@ -134,11 +139,8 @@
         [
           "  c.person_id,",
           "  c.t0,",
-          "  CASE",
-          "    WHEN c.t0 < " + ctx.studyStart + " THEN " + ctx.studyStart,
-          "    ELSE c.t0",
-          "  END AS exposure_index_date,",
-          "  " + windowExpr.firstIndexDateExpr + " AS first_index_date"
+          "  " + exposureExpr + " AS exposure_index_date,",
+          "  " + anchorFirstIndexExpr + " AS first_index_date"
         ].join("\n"),
         "FROM " + dbg.tmpName("cohort") + " c"
       ),
