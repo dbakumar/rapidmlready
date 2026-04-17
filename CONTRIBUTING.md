@@ -168,7 +168,7 @@ use the tool, see [README.md](README.md).
 | `generator.js` | Central orchestrator. Sets up the `window.RapidML` global namespace. Contains **all three plugin registries** (Adapters, Methodologies, AnalysisTemplates). Reads HTML form inputs, normalises them into a config object, validates, orchestrates SQL generation via plugins, and packages output into a zip file. | `RapidML.Adapters.register/get/list`, `RapidML.Methodologies.register/get/list`, `RapidML.AnalysisTemplates.register/get/list`, `getFormConfig()`, `normalizeConfig()`, `validateConfig()`, `generate()`, `download()`, `downloadPackage()` |
 | `dialects.js` | Database-specific SQL syntax. Every other file that builds SQL calls these helpers so that one dialect switch produces correct SQL for PostgreSQL or SQL Server. Standalone — no dependencies. | `RapidML.Compiler.Dialects.dialectFor()`, `.quoteDateLiteral()`, `.addDaysExpr()`, `.addYearsExpr()`, `.seriesCTE()` |
 | `evidence-ui.js` | Dynamic evidence row forms. Renders the add/remove row UI for each evidence block (entry, outcome, exclusions, confounders). Collects all row data from the DOM into a study definition object. Pure DOM manipulation — no dependencies. | `RapidML.EvidenceUI.renderBlock()`, `.collectBlockData()`, `.collectListData()`, `.collectStudyDefinition()`, `.applyDiabetesExample()`, `.applyDiabetesLabExample()` |
-| `wizard-ui.js` | All browser-side UI logic. Manages 3-panel layout, step navigation, covariate presets, example buttons, concept reference sidebar, dropdown population from registries, and real-time self-check validation. Must be loaded **last** because it depends on everything else. | `goToSection()`, `updateSelfCheck()`, `applyCovariatePreset()`, `populateDropdowns()` |
+| `wizard-ui.js` | All browser-side UI logic. Manages 3-panel layout, step navigation, covariate presets, custom covariate row management, example buttons, concept reference sidebar, dropdown population from registries, and real-time self-check validation. Must be loaded **last** because it depends on everything else. | `goToSection()`, `updateSelfCheck()`, `applyCovariatePreset()`, `populateDropdowns()`, `addCustomCovariateRow()`, `collectCustomCovariates()` |
 
 ### omop/ — OMOP CDM data model
 
@@ -176,8 +176,8 @@ use the tool, see [README.md](README.md).
 |------|---------------|-------------|
 | `evidence-sql.js` | **OMOP adapter** — converts evidence block rows into OMOP-specific SQL CTEs. Maps row types to OMOP tables (condition_occurrence, measurement, drug_exposure, procedure_occurrence, observation, visit_occurrence). Handles concept descendants, visit context filtering, minCount thresholds. Registers as `RapidML.Adapters.register({ id: "omop", ... })`. | Adapter methods: `buildConceptCTEs`, `buildCohortCTE`, `buildFirstOutcomeCTE`, `buildOutcomeLabelExpr`, `buildExclusionWhere`, `buildConfounderColumns`, `buildDomainBridge` |
 | `compiler.js` | **Compiler toolkit** — provides reusable SQL building blocks that methodologies assemble. Routes data-model-specific calls through the registered adapter. Does NOT build the spine — that is the methodology's job. | `RapidML.Compiler.prepareContext()`, `.buildConceptCTEs()`, `.buildCohortCTE()`, `.buildAnchorCTE()`, `.buildFirstOutcomeCTE()`, `.buildCensoredSpineCTE()`, `.outcomeLabelExpr()`, `.buildFinalSelect()`, `.buildHeader()`, `.buildPerformanceHints()`, `.buildDebugHelpers()`, `.buildDebug*Step()`, `.sqlLines()` |
-| `censoring.js` | Builds the WHERE clause fragment that removes spine rows falling outside valid time periods: outcome date check, observation period boundaries, study end date. | `RapidML.Compiler.Censoring.buildCensoringWhere(config)` |
-| `covariates.js` | Builds SQL SELECT columns and JOINs for patient-level features. Supports demographics (age, sex, race, ethnicity), baseline counts (conditions, drugs, visits, measurements), baseline labs (eGFR, creatinine, HbA1c, BP, BMI), and prior history (outcome, hospitalisation, ER, procedure). Supports three encoding modes: count, binary, or both. | `RapidML.Compiler.Covariates.buildSelect(config)`, `.STANDARD_CONCEPTS` |
+| `censoring.js` | Builds the WHERE clause fragment that removes spine rows falling outside valid time periods: outcome date check, observation period boundaries (via EXISTS subquery to avoid row duplication), study end date. | `RapidML.Compiler.Censoring.buildCensoringWhere(config)` |
+| `covariates.js` | Builds SQL SELECT columns and JOINs for patient-level features. Supports demographics (age, sex, race, ethnicity), baseline counts (conditions, drugs, visits, measurements), baseline labs (eGFR, creatinine, HbA1c, BP, BMI), prior history (outcome, hospitalisation, ER, procedure), and **custom covariates** (any OMOP concept ID from any domain with flexible aggregation). Supports three encoding modes: count, binary, or both. | `RapidML.Compiler.Covariates.buildSelect(config)`, `.STANDARD_CONCEPTS` |
 | `concepts.js` | Stores common OMOP concept IDs (conditions, measurements, drugs, procedures) for the wizard right sidebar. Renders click-to-copy HTML. Extensible via `addConcept()` and `addConcepts()`. | `RapidML.ConceptReference.getCategories()`, `.getByCategory()`, `.renderCategory()`, `.renderAll()`, `.addConcept()`, `.addConcepts()` |
 | `artifacts.js` | Generates a detailed `manifest.json` when best-practice mode is enabled — includes full evidence logic descriptions, OMOP table mappings, match mode explanations, SQL logic summaries, covariate details, and raw config snapshot. | `RapidML.Compiler.buildArtifacts(config, methodologyId)` |
 
@@ -313,6 +313,16 @@ every plugin.
     "baseline_measurement_count"
   ],
 
+  // ── Custom covariates (user-defined concept IDs) ───
+  customCovariates: [          // array of custom covariate objects
+    {
+      domain: "condition",          // OMOP domain (condition|drug|lab|procedure|observation|visit)
+      conceptId: "201826",          // OMOP concept ID
+      aggregation: "count",         // count|binary|last_value|first_value|min_value|max_value
+      label: "diabetes_count"       // SQL column alias (sanitised to [a-z0-9_])
+    }
+  ],
+
   // ── Study definition (evidence blocks) ─────────────
   study: {
     entry: {                   // cohort entry criteria
@@ -379,6 +389,24 @@ every plugin.
 | `prior_hospitalization_flag` | Prior history | 1 if any inpatient visit before baseline |
 | `prior_er_visit_flag` | Prior history | 1 if any ER visit before baseline |
 | `prior_procedure_flag` | Prior history | 1 if any procedure before baseline |
+
+### Custom Covariates
+
+In addition to the predefined IDs above, users can add any OMOP concept
+as a custom covariate via the "Custom Covariates" section in the wizard.
+Each custom covariate specifies:
+
+| Field | Description | Valid Values |
+|-------|-------------|-------------|
+| `domain` | OMOP domain to query | `condition`, `drug`, `lab`, `procedure`, `observation`, `visit` |
+| `conceptId` | OMOP concept ID (digits only) | Any valid concept ID |
+| `aggregation` | How to compute the feature value | `count`, `binary`, `last_value`, `first_value`, `min_value`, `max_value` |
+| `label` | SQL column alias | Alphanumeric + underscore, max 50 chars |
+
+Custom covariates are collected by `collectCustomCovariates()` in
+`wizard-ui.js` and stored in `config.customCovariates[]`. The SQL
+builder in `covariates.js` iterates this array after the predefined
+covariate loop and generates domain-specific subqueries.
 
 ---
 
@@ -546,7 +574,9 @@ The compiler applies four censoring conditions (via `omop/censoring.js`):
 1. **Outcome timing**: outcome_date must be on or after outcome_start (no
    pre-existing outcomes counted)
 2. **Observation start**: baseline_start must be >= observation_period_start_date
+   (checked via EXISTS subquery to avoid row duplication from overlapping periods)
 3. **Observation end**: outcome_end must be <= observation_period_end_date
+   (checked via EXISTS subquery)
 4. **Study boundary**: outcome_end must be <= study end date
 
 ---
@@ -1000,7 +1030,9 @@ The template automatically appears in the Analysis Template dropdown.
 
 **File to edit:** `omop/covariates.js`
 
-### Step 1: Add the covariate ID to buildSelect()
+### Option A: Add a predefined covariate
+
+#### Step 1: Add the covariate ID to buildSelect()
 
 Inside the `buildSelect()` function, add a new `if` block in the
 `selected.forEach` loop:
@@ -1037,6 +1069,22 @@ In `core/wizard-ui.js`, add your covariate ID to the `extended` preset
 
 Check the box, generate a package, and verify the covariate appears in
 the SQL output and the generated README.
+
+### Option B: Use custom covariates (no code changes needed)
+
+If you need a covariate for a specific OMOP concept ID, you do not need
+to edit any code. Use the **Custom Covariates** section in the wizard
+(step 4) to add rows at runtime:
+
+1. Click "+ Add Custom Covariate" in the Covariates step.
+2. Select the OMOP domain (condition, drug, lab, procedure, observation, visit).
+3. Enter the concept ID.
+4. Choose an aggregation mode (count, binary, last_value, first_value, min, max).
+5. Provide a column label (auto-sanitised to a safe SQL identifier).
+
+Custom covariates are processed by `covariates.js` alongside the predefined
+set and appear in the generated SQL output. This is the recommended approach
+when you need concept-specific features without modifying the codebase.
 
 ---
 
@@ -1192,6 +1240,9 @@ based on its dependencies.
 - [ ] Exclusion rows correctly generate `NOT EXISTS` clauses
 - [ ] Confounder rows correctly generate binary flag columns
 - [ ] Covariates appear in the final SELECT with correct JOINs
+- [ ] Custom covariates (user-defined concept IDs) generate correct subqueries
+- [ ] Custom covariate labels are sanitised to safe SQL identifiers
+- [ ] Custom covariate aggregation modes (count, binary, last/first/min/max) produce correct SQL
 - [ ] Debug mode produces step-by-step temp tables with row counts
 - [ ] Production mode produces a single CTE chain
 

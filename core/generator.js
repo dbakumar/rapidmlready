@@ -312,7 +312,8 @@ function normalizeConfig(raw) {
 
     // COVARIATES (features to include)
     covariateEncoding: raw.covariateEncoding || "count",
-    covariates: Array.isArray(raw.covariates) && raw.covariates.length ? raw.covariates : defaults
+    covariates: Array.isArray(raw.covariates) && raw.covariates.length ? raw.covariates : defaults,
+    customCovariates: Array.isArray(raw.customCovariates) ? raw.customCovariates : []
   };
 
   // STUDY DEFINITION (evidence blocks)
@@ -341,6 +342,12 @@ function getFormConfig() {
     selectedCovariates.push(covariateEls[i].value);
   }
 
+  // Collect custom covariates (user-defined concept ID rows)
+  var customCovariates = [];
+  if (typeof collectCustomCovariates === "function") {
+    customCovariates = collectCustomCovariates();
+  }
+
   // Collect evidence-based study definition from the UI
   var study = null;
   if (RapidML.EvidenceUI && typeof RapidML.EvidenceUI.collectStudyDefinition === "function") {
@@ -362,6 +369,7 @@ function getFormConfig() {
     bestPracticeMode: document.getElementById("bestPracticeMode") ? document.getElementById("bestPracticeMode").checked : false,
     covariateEncoding: document.getElementById("covariateEncoding") ? document.getElementById("covariateEncoding").value : "count",
     covariates: selectedCovariates,
+    customCovariates: customCovariates,
     study: study
   });
 }

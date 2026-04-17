@@ -236,9 +236,10 @@ The wizard auto-populates dropdowns from whatever plugins are loaded.
 - Populates methodology/template dropdowns from plugin registries.
 - Runs real-time self-check validation on every input change.
 
-**10 sections (in execution order):**
+**11 sections (in execution order):**
 1. Tab navigation — show/hide wizard sections
 2. Covariate presets — minimal, clinical baseline, extended
+2b. Custom covariates — add/remove rows for user-defined concept ID features
 3. Visit filter — custom visit concept fields
 4. Evidence block setup — initialise the 4 evidence containers
 5. Example buttons — pre-fill with diabetes study examples
@@ -300,11 +301,13 @@ The wizard auto-populates dropdowns from whatever plugins are loaded.
 
 **What it does:**
 - Builds the WHERE clause fragment that removes rows falling outside valid periods.
+- Uses EXISTS subqueries for observation period checks (avoids row
+  duplication from overlapping periods).
 
 **Censoring conditions:**
 1. Outcome date >= outcome window start (no pre-existing outcomes)
-2. Baseline start >= observation period start
-3. Outcome end <= observation period end
+2. Baseline start >= observation period start (via EXISTS)
+3. Outcome end <= observation period end (via EXISTS)
 4. Outcome end <= study end date
 
 ---
@@ -314,6 +317,8 @@ The wizard auto-populates dropdowns from whatever plugins are loaded.
 **What it does:**
 - Builds SQL SELECT columns and JOINs for patient-level features.
 - Supports three encoding modes: count, binary, or both.
+- Handles both predefined covariates (checkboxes) and custom covariates
+  (user-defined concept IDs from any OMOP domain).
 
 **Covariate groups:**
 | Group | Examples |
@@ -322,6 +327,7 @@ The wizard auto-populates dropdowns from whatever plugins are loaded.
 | Baseline counts | condition_count, drug_count, visit_count, measurement_count |
 | Baseline labs | eGFR, creatinine, HbA1c, BP, BMI |
 | Prior history | prior_outcome, hospitalisation, ER visit, procedure |
+| Custom | Any OMOP concept ID with count/binary/last/first/min/max aggregation |
 
 ---
 
@@ -490,6 +496,8 @@ See **[CONTRIBUTING.md](CONTRIBUTING.md)** for step-by-step instructions on how 
 
 ## Covariates
 
+### Predefined Covariates
+
 **Demographics:** age, sex, race, ethnicity
 **Baseline counts:** conditions, drugs, visits, measurements
 **Baseline labs:** eGFR, creatinine, HbA1c, systolic/diastolic BP, BMI
@@ -497,6 +505,44 @@ See **[CONTRIBUTING.md](CONTRIBUTING.md)** for step-by-step instructions on how 
 
 Presets: Minimal (age+sex), Clinical Baseline (recommended), Extended (full).
 Encoding: count, binary, or both.
+
+### Custom Covariates (Any Concept ID)
+
+In addition to the predefined checkboxes, you can add **any OMOP concept**
+as a covariate feature. Click "+ Add Custom Covariate" in the Covariates
+step to create rows with:
+
+| Field | Description |
+|-------|-------------|
+| Domain | OMOP domain: condition, drug, lab/measurement, procedure, observation, visit |
+| Concept ID | Any valid OMOP concept ID (e.g. 201826 for Type 2 Diabetes) |
+| Aggregation | How to compute the feature: count, binary (0/1), last value, first value, min, max |
+| Column Label | The SQL column alias for the feature (auto-sanitised to safe identifier) |
+
+**Domain-to-table mapping:**
+
+| Domain | OMOP Table | Concept Column | Date Column |
+|--------|-----------|---------------|-------------|
+| condition | `condition_occurrence` | `condition_concept_id` | `condition_start_date` |
+| drug | `drug_exposure` | `drug_concept_id` | `drug_exposure_start_date` |
+| lab | `measurement` | `measurement_concept_id` | `measurement_date` |
+| procedure | `procedure_occurrence` | `procedure_concept_id` | `procedure_date` |
+| observation | `observation` | `observation_concept_id` | `observation_date` |
+| visit | `visit_occurrence` | `visit_concept_id` | `visit_start_date` |
+
+**Aggregation modes:**
+
+| Mode | SQL Expression |
+|------|---------------|
+| count | `COUNT(*)` of matching records in baseline window |
+| binary | `1` if any match exists, `0` otherwise |
+| last_value | `value_as_number` from the most recent record in baseline |
+| first_value | `value_as_number` from the earliest record in baseline |
+| min_value | `MIN(value_as_number)` in baseline |
+| max_value | `MAX(value_as_number)` in baseline |
+
+Custom covariates are stored in `config.customCovariates[]` and processed
+by `covariates.js` alongside the predefined set.
 
 ## Current Scope
 
