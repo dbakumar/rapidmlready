@@ -1,71 +1,162 @@
 /**
  * ============================================================================
- * GENERATOR.JS – Core Plugin Coordinator and Configuration Handler
+ * GENERATOR.JS  -  Core Plugin Coordinator, Registries & Configuration Handler
  * ============================================================================
- * 
- * This file manages:
- * 1. PLUGIN REGISTRIES – Store methodology and analysis template plugins
- * 2. FORM CONFIG COLLECTION – Gather user inputs from HTML forms
- * 3. CONFIG NORMALIZATION – Convert raw form data into study configuration
- * 4. GENERATION & DOWNLOAD – Create finalized SQL and scripts
- * 
- * For developers:
- * - Each function has a single, clear purpose
- * - Plugin registries use simple key-value objects
- * - Config flows: raw form data → normalized config → compiler input
- * - All download logic is centralized in the generate() function
+ *
+ * PURPOSE:
+ *   This is the central orchestration file for the Rapid ML-Ready Wizard.
+ *   It ties together all plugins (methodologies, analysis templates, data
+ *   model adapters), collects user input from the HTML form, validates it,
+ *   and packages the generated output files into a downloadable zip.
+ *
+ * WHAT THIS FILE MANAGES:
+ *   1. ADAPTER REGISTRY         - register / retrieve data model adapters
+ *   2. METHODOLOGY REGISTRY     - register / retrieve study methodology plugins
+ *   3. ANALYSIS TEMPLATE REG.   - register / retrieve analysis template plugins
+ *   4. FORM CONFIG COLLECTION   - read all HTML form inputs into config object
+ *   5. CONFIG NORMALISATION     - apply defaults and type-coerce values
+ *   6. INPUT VALIDATION         - verify config before SQL generation
+ *   7. DOWNLOAD & PACKAGING     - create timestamped zip of all outputs
+ *   8. GENERATION ENTRY POINT   - generate() wires everything together
+ *
+ * DEPENDS ON:  nothing (loaded first among project scripts)
+ * USED BY:     wizard-ui.js (calls generate()), methodologies/*.js, templates/*.js
+ *
+ * GLOBAL NAMESPACE:
+ *   window.RapidML.Methodologies      - methodology plugin registry
+ *   window.RapidML.AnalysisTemplates  - analysis template plugin registry
+ *   window.RapidML.Adapters           - data model adapter registry
+ *   window.RapidML.Compiler           - shared compiler namespace (populated
+ *                                       by omop/compiler.js, core/dialects.js)
+ *
+ * DATA FLOW:
+ *   User fills HTML form
+ *        |  getFormConfig()
+ *        v
+ *   Raw form data -> normalizeConfig() -> validateConfig()
+ *        |                                     |
+ *        v                                     v
+ *   Normalized config object            Array of error strings
+ *        |
+ *        v  generate()
+ *   methodology.buildSQL(config)   -> study.sql
+ *   methodology.describeRules(cfg) -> README.md
+ *   template.buildScript(config)   -> run.py
+ *        |
+ *        v  downloadPackage()
+ *   Timestamped zip file
  * ============================================================================
  */
 
 // ============================================================================
-// PLUGIN REGISTRY SETUP
+// GLOBAL NAMESPACE SETUP
 // ============================================================================
-// The RapidML global object holds all plugins and utilities for the wizard
+// The RapidML global object holds all plugins and utilities for the wizard.
+// Every other script file attaches its public API to this object.
 window.RapidML = window.RapidML || {};
 RapidML.Methodologies = RapidML.Methodologies || {};
 RapidML.AnalysisTemplates = RapidML.AnalysisTemplates || {};
 RapidML.Compiler = RapidML.Compiler || {};
 
 // ============================================================================
+// DATA MODEL ADAPTER REGISTRY
+// ============================================================================
+// Adapters translate evidence blocks (diagnosis, lab, drug, procedure rows)
+// into data-model-specific SQL.  Currently only OMOP CDM is implemented
+// (see omop/evidence-sql.js).  Future adapters (FHIR, i2b2, PCORnet) would
+// register here and become available in the Data Model dropdown.
+//
+// Adapter interface - each adapter object must provide:
+//   id                              -> unique string, e.g. "omop"
+//   buildConceptCTEs(config)        -> array of CTE strings
+//   buildCohortCTE(config)          -> CTE string (person_id, t0)
+//   buildFirstOutcomeCTE(config)    -> CTE string (person_id, outcome_date)
+//   buildOutcomeLabelExpr(config)   -> CASE expression string
+//   buildExclusionWhere(config)     -> WHERE clause string or null
+//   buildConfounderColumns(config)  -> { columns: [], joins: [] }
+//   buildDomainBridge(config)       -> { outcomes, cohortEntry } bridge
+
+(function () {
+  var adapters = {};
+
+  /**
+   * Registry for data model adapters.
+   *
+   * register(adapter) - store an adapter keyed by adapter.id
+   * get(id)           - retrieve by id (returns null if not found)
+   * list()            - return array of all registered adapter objects
+   */
+  RapidML.Adapters = {
+    register: function (adapter) {
+      if (adapter && adapter.id) {
+        adapters[adapter.id] = adapter;
+      }
+    },
+    get: function (id) {
+      return adapters[id] || null;
+    },
+    list: function () {
+      return Object.keys(adapters).map(function (k) { return adapters[k]; });
+    }
+  };
+})();
+
+// ============================================================================
 // METHODOLOGY PLUGIN MANAGEMENT
 // ============================================================================
-// Methodologies define HOW to build the cohort (e.g., longitudinal prediction)
-// Each plugin provides SQL generation and rule documentation
+// Methodologies define HOW to build the cohort (e.g., longitudinal prediction).
+// Each plugin provides SQL generation and rule documentation.
+//
+// Methodology interface:
+//   id                       -> unique string, e.g. "longitudinal-prediction"
+//   label                    -> human-readable name for dropdown
+//   buildSQL(config, db)     -> complete SQL string
+//   describeRules(config)    -> Markdown string for README
 
-/** Register a new methodology plugin */
+/** Register a new methodology plugin. */
 RapidML.Methodologies.register = function(plugin) {
   RapidML.Methodologies[plugin.id] = plugin;
 };
 
-/** Retrieve a single methodology by ID */
+/** Retrieve a single methodology by ID. */
 RapidML.Methodologies.get = function(id) {
   return RapidML.Methodologies[id];
 };
 
-/** Get all registered methodologies as an array */
+/** Get all registered methodologies as an array. */
 RapidML.Methodologies.list = function() {
-  return Object.values(RapidML.Methodologies).filter(function(p) { return p && p.id; });
+  return Object.keys(RapidML.Methodologies).filter(function(k) {
+    return RapidML.Methodologies[k] && RapidML.Methodologies[k].id;
+  }).map(function(k) { return RapidML.Methodologies[k]; });
 };
 
 // ============================================================================
 // ANALYSIS TEMPLATE PLUGIN MANAGEMENT
 // ============================================================================
-// Analysis templates define analysis code generation (e.g., logistic regression)
-// Each template produces analysis scripts based on the selected methodology
+// Analysis templates define analysis code generation (e.g., logistic regression).
+// Each template produces analysis scripts based on the selected methodology.
+//
+// Template interface:
+//   id                       -> unique string, e.g. "logistic-regression"
+//   label                    -> human-readable name for dropdown
+//   filename                 -> output filename, e.g. "run.py"
+//   buildScript(config)      -> complete script string
 
-/** Register a new analysis template plugin */
+/** Register a new analysis template plugin. */
 RapidML.AnalysisTemplates.register = function(plugin) {
   RapidML.AnalysisTemplates[plugin.id] = plugin;
 };
 
-/** Retrieve a single analysis template by ID */
+/** Retrieve a single analysis template by ID. */
 RapidML.AnalysisTemplates.get = function(id) {
   return RapidML.AnalysisTemplates[id];
 };
 
-/** Get all registered analysis templates as an array */
+/** Get all registered analysis templates as an array. */
 RapidML.AnalysisTemplates.list = function() {
-  return Object.values(RapidML.AnalysisTemplates).filter(function(p) { return p && p.id; });
+  return Object.keys(RapidML.AnalysisTemplates).filter(function(k) {
+    return RapidML.AnalysisTemplates[k] && RapidML.AnalysisTemplates[k].id;
+  }).map(function(k) { return RapidML.AnalysisTemplates[k]; });
 };
 
 // ============================================================================
@@ -73,16 +164,21 @@ RapidML.AnalysisTemplates.list = function() {
 // ============================================================================
 
 /**
- * Download a file to the user's computer
+ * Download a file to the user's computer.
+ *
+ * Creates a temporary Blob URL, triggers a click on a hidden anchor,
+ * then cleans up.  Used for individual file fallback when JSZip is
+ * unavailable.
+ *
  * @param {string} filename - Name for the downloaded file
- * @param {string} text - File content
- * @param {string} mimeType - Optional: MIME type (default "text/plain")
+ * @param {string} text     - File content
+ * @param {string} mimeType - MIME type (default "text/plain")
  */
 function download(filename, text, mimeType) {
   mimeType = mimeType || "text/plain";
-  const blob = new Blob([text], { type: mimeType });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
+  var blob = new Blob([text], { type: mimeType });
+  var url = window.URL.createObjectURL(blob);
+  var link = document.createElement("a");
   link.href = url;
   link.download = filename;
   document.body.appendChild(link);
@@ -92,11 +188,14 @@ function download(filename, text, mimeType) {
 }
 
 /**
- * Download a Blob (used for zip packages).
+ * Download a pre-built Blob (used for zip packages).
+ *
+ * @param {string} filename - Name for the downloaded file
+ * @param {Blob}   blob     - Binary content
  */
 function downloadBlob(filename, blob) {
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
+  var url = window.URL.createObjectURL(blob);
+  var link = document.createElement("a");
   link.href = url;
   link.download = filename;
   document.body.appendChild(link);
@@ -107,43 +206,56 @@ function downloadBlob(filename, blob) {
 
 /**
  * Build a filesystem-safe timestamp like 20260414_091530.
+ * Used to make every generated file uniquely identifiable.
+ *
+ * @return {string} timestamp in YYYYMMdd_HHmmss format
  */
 function buildTimestamp() {
-  const now = new Date();
-  const yyyy = String(now.getFullYear());
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mi = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
+  var now = new Date();
+  var yyyy = String(now.getFullYear());
+  var mm = String(now.getMonth() + 1).padStart(2, "0");
+  var dd = String(now.getDate()).padStart(2, "0");
+  var hh = String(now.getHours()).padStart(2, "0");
+  var mi = String(now.getMinutes()).padStart(2, "0");
+  var ss = String(now.getSeconds()).padStart(2, "0");
   return yyyy + mm + dd + "_" + hh + mi + ss;
 }
 
 /**
- * Add timestamp before extension so each generated file is uniquely identifiable.
+ * Add timestamp before extension so each generated file is uniquely
+ * identifiable.  E.g. "study.sql" -> "study_20260414_091530.sql"
+ *
+ * @param  {string} filename  original file name
+ * @param  {string} timestamp from buildTimestamp()
+ * @return {string}           timestamped file name
  */
 function withTimestamp(filename, timestamp) {
-  const lastDot = filename.lastIndexOf(".");
+  var lastDot = filename.lastIndexOf(".");
   if (lastDot <= 0) {
     return filename + "_" + timestamp;
   }
-  const base = filename.slice(0, lastDot);
-  const ext = filename.slice(lastDot);
+  var base = filename.slice(0, lastDot);
+  var ext = filename.slice(lastDot);
   return base + "_" + timestamp + ext;
 }
 
 /**
- * Package all generated files into one zip (preferred) and fallback to direct downloads.
+ * Package all generated files into one zip (preferred) or fall back to
+ * individual file downloads when JSZip is not available.
+ *
+ * @param {Array}  files     array of {filename, content, mimeType}
+ * @param {string} timestamp from buildTimestamp()
  */
-async function downloadPackage(files, timestamp) {
+function downloadPackage(files, timestamp) {
   if (window.JSZip) {
-    const zip = new window.JSZip();
+    var zip = new window.JSZip();
     files.forEach(function(file) {
       zip.file(withTimestamp(file.filename, timestamp), file.content);
     });
 
-    const zipBlob = await zip.generateAsync({ type: "blob" });
-    downloadBlob("rapidmlready_package_" + timestamp + ".zip", zipBlob);
+    zip.generateAsync({ type: "blob" }).then(function(zipBlob) {
+      downloadBlob("rapidmlready_package_" + timestamp + ".zip", zipBlob);
+    });
     return;
   }
 
@@ -161,20 +273,15 @@ async function downloadPackage(files, timestamp) {
 // ============================================================================
 
 /**
- * Normalizes raw form data into a clean, consistent study configuration.
- * This ensures all required fields have defaults and proper types.
- * 
- * Why normalize?
- * - User might skip fields → provide sensible defaults
- * - Form returns strings → convert to proper types (numbers, booleans)
- * - Multiple rules stored in single object → simplify access
- * 
- * @param {object} raw - Raw form data from getFormConfig()
- * @returns {object} - Normalized config ready for SQL compiler
+ * Normalises raw form data into a clean, consistent study configuration.
+ * Ensures all required fields have defaults and proper types.
+ *
+ * @param  {object} raw  raw form data from getFormConfig()
+ * @return {object}      normalised config ready for SQL compiler
  */
 function normalizeConfig(raw) {
-  // Default covariates if user doesn't select any
-  const defaults = [
+  // Default covariates if user does not select any
+  var defaults = [
     "age_at_index",
     "sex_concept_id",
     "baseline_condition_count",
@@ -183,55 +290,37 @@ function normalizeConfig(raw) {
     "baseline_measurement_count"
   ];
 
-  return {
+  var config = {
     // DATABASE SETTINGS
     db: raw.db || "postgres",
     schema: raw.schema || "",
+    dataModel: raw.dataModel || "omop",
     startYear: String(raw.startYear || "2016"),
     endYear: String(raw.endYear || "2024"),
 
-    // OUTCOME RULE (how to label follow-up window)
-    outcomeConceptId: raw.outcomeConceptId || "",
-    outcomeRule: raw.outcomeRule || {
-      mode: "condition_occurrence",
-      conceptId: raw.outcomeConceptId || "",
-      measurementConceptId: "",
-      measurementOperator: ">",
-      measurementValue: ""
-    },
-
-    // TIMEFRAMES
-    baselineYears: String(raw.baselineYears || "1"),
-    outcomeYears: String(raw.outcomeYears || "1"),
+    // TIMEFRAMES (in days)
+    baselineDays: String(raw.baselineDays || "365"),
+    outcomeDays: String(raw.outcomeDays || "365"),
 
     // OPTIONS
     debug: !!raw.debug,
     bestPracticeMode: !!raw.bestPracticeMode,
 
-    // VISIT FILTER FOR ENTRY EVENTS
-    visitFilter: {
-      mode: raw.visitFilter && raw.visitFilter.mode ? raw.visitFilter.mode : "all",
-      conceptIds: raw.visitFilter && Array.isArray(raw.visitFilter.conceptIds) ? raw.visitFilter.conceptIds : []
-    },
-
     // PLUGIN SELECTIONS
     methodology: raw.methodology || "longitudinal-prediction",
     analysisTemplate: raw.analysisTemplate || "logistic-regression",
-
-    // COHORT RULE (when patients enter)
-    cohortEntryMode: raw.cohortEntryMode || "first_event",
-    cohortEntry: raw.cohortEntry || {
-      mode: "first_event",
-      conditionConceptId: "",
-      measurementConceptId: "",
-      measurementOperator: ">",
-      measurementValue: ""
-    },
 
     // COVARIATES (features to include)
     covariateEncoding: raw.covariateEncoding || "count",
     covariates: Array.isArray(raw.covariates) && raw.covariates.length ? raw.covariates : defaults
   };
+
+  // STUDY DEFINITION (evidence blocks)
+  if (raw.study) {
+    config.study = raw.study;
+  }
+
+  return config;
 }
 
 // ============================================================================
@@ -239,85 +328,41 @@ function normalizeConfig(raw) {
 // ============================================================================
 
 /**
- * Read all form inputs from the HTML and collect into raw config object.
- * This is called when "Generate Package" is clicked.
- * 
- * @returns {object} - Raw config data (before normalization)
+ * Read all form inputs from the HTML and collect into a raw config object.
+ * Uses EvidenceUI to collect the study definition evidence blocks.
+ *
+ * @return {object} normalised config data
  */
 function getFormConfig() {
   // Collect all checked covariate checkboxes into an array
-  const selectedCovariates = Array.from(document.querySelectorAll('input[name="covariates"]:checked'))
-    .map(function(el) { return el.value; });
-
-  // Extract outcome rule settings from form fields
-  function getOutcomeRuleConfig() {
-    const modeElem = document.getElementById("outcomeRuleMode");
-    const conceptElem = document.getElementById("outcomeConceptId");
-    const measurementElem = document.getElementById("outcomeMeasurementConceptId");
-    const opElem = document.getElementById("outcomeMeasurementOp");
-    const valueElem = document.getElementById("outcomeMeasurementValue");
-
-    return {
-      mode: modeElem ? modeElem.value || "condition_occurrence" : "condition_occurrence",
-      conceptId: conceptElem ? conceptElem.value || "" : "",
-      measurementConceptId: measurementElem ? measurementElem.value || "" : "",
-      measurementOperator: opElem ? opElem.value || ">" : ">",
-      measurementValue: valueElem ? valueElem.value || "" : ""
-    };
+  var covariateEls = document.querySelectorAll('input[name="covariates"]:checked');
+  var selectedCovariates = [];
+  for (var i = 0; i < covariateEls.length; i++) {
+    selectedCovariates.push(covariateEls[i].value);
   }
 
-  // Extract cohort rule settings from form fields
-  function getCohortEntryConfig() {
-    const modeElem = document.getElementById("cohortEntryMode");
-    const conditionElem = document.getElementById("cohortConditionConceptId");
-    const measurementElem = document.getElementById("cohortMeasurementConceptId");
-    const opElem = document.getElementById("cohortMeasurementOp");
-    const valueElem = document.getElementById("cohortMeasurementValue");
-
-    return {
-      mode: modeElem ? modeElem.value : "first_event",
-      conditionConceptId: conditionElem ? conditionElem.value || "" : "",
-      measurementConceptId: measurementElem ? measurementElem.value || "" : "",
-      measurementOperator: opElem ? opElem.value || ">" : ">",
-      measurementValue: valueElem ? valueElem.value || "" : ""
-    };
-  }
-
-  function getVisitFilterConfig() {
-    const modeElem = document.getElementById("visitFilterMode");
-    const conceptsElem = document.getElementById("visitConceptIds");
-    const mode = modeElem ? modeElem.value || "all" : "all";
-    const conceptIds = conceptsElem && conceptsElem.value
-      ? conceptsElem.value.split(",").map(function(id) {
-          return String(id || "").trim().replace(/[^0-9]/g, "");
-        }).filter(function(id) { return id.length > 0; })
-      : [];
-
-    return {
-      mode: mode,
-      conceptIds: conceptIds
-    };
+  // Collect evidence-based study definition from the UI
+  var study = null;
+  if (RapidML.EvidenceUI && typeof RapidML.EvidenceUI.collectStudyDefinition === "function") {
+    study = RapidML.EvidenceUI.collectStudyDefinition();
   }
 
   // Collect all form fields and normalize
   return normalizeConfig({
     db: document.getElementById("db").value,
     schema: document.getElementById("schema").value,
+    dataModel: document.getElementById("dataModel") ? document.getElementById("dataModel").value : "omop",
     startYear: document.getElementById("startYear").value,
     endYear: document.getElementById("endYear").value,
-    outcomeConceptId: document.getElementById("outcomeConceptId").value,
-    outcomeRule: getOutcomeRuleConfig(),
-    baselineYears: document.getElementById("baselineYears").value,
-    outcomeYears: document.getElementById("outcomeYears").value,
+    baselineDays: document.getElementById("baselineDays").value,
+    outcomeDays: document.getElementById("outcomeDays").value,
     debug: document.getElementById("debugMode").checked,
     methodology: document.getElementById("methodology") ? document.getElementById("methodology").value : "longitudinal-prediction",
     analysisTemplate: document.getElementById("analysisTemplate") ? document.getElementById("analysisTemplate").value : "logistic-regression",
-    cohortEntryMode: document.getElementById("cohortEntryMode") ? document.getElementById("cohortEntryMode").value : "first_event",
-    cohortEntry: getCohortEntryConfig(),
-    visitFilter: getVisitFilterConfig(),
     bestPracticeMode: document.getElementById("bestPracticeMode") ? document.getElementById("bestPracticeMode").checked : false,
     covariateEncoding: document.getElementById("covariateEncoding") ? document.getElementById("covariateEncoding").value : "count",
-    covariates: selectedCovariates
+    covariates: selectedCovariates,
+    study: study
   });
 }
 
@@ -371,20 +416,35 @@ function validateConfig(config) {
     errors.push("Start year must be before end year.");
   }
 
-  // Baseline/outcome window
-  if (parseInt(config.baselineYears, 10) <= 0) {
-    errors.push("Baseline period must be positive.");
+  // Baseline/outcome window (days)
+  if (parseInt(config.baselineDays, 10) <= 0) {
+    errors.push("Baseline period (days) must be positive.");
   }
-  if (parseInt(config.outcomeYears, 10) <= 0) {
-    errors.push("Outcome window must be positive.");
+  if (parseInt(config.outcomeDays, 10) <= 0) {
+    errors.push("Outcome window (days) must be positive.");
   }
 
-  // Validate operators in cohort/outcome rules
-  if (config.cohortEntry) {
-    config.cohortEntry.measurementOperator = validateOperator(config.cohortEntry.measurementOperator);
-  }
-  if (config.outcomeRule) {
-    config.outcomeRule.measurementOperator = validateOperator(config.outcomeRule.measurementOperator);
+  // Evidence block validation
+  if (config.study) {
+    if (!config.study.entry || !config.study.entry.rows || config.study.entry.rows.length === 0) {
+      errors.push("At least one cohort entry evidence row is required.");
+    }
+    if (!config.study.outcome || !config.study.outcome.rows || config.study.outcome.rows.length === 0) {
+      errors.push("At least one outcome evidence row is required.");
+    }
+
+    // Validate operators in evidence rows
+    var allRows = [].concat(
+      (config.study.entry && config.study.entry.rows) || [],
+      (config.study.outcome && config.study.outcome.rows) || [],
+      config.study.exclusions || [],
+      config.study.confounders || []
+    );
+    allRows.forEach(function(row) {
+      if (row.type === "lab" && row.operator) {
+        row.operator = validateOperator(row.operator);
+      }
+    });
   }
 
   // Sanitize schema name in-place
@@ -399,31 +459,32 @@ function validateConfig(config) {
 
 /**
  * Main generate function: orchestrates SQL generation and package download.
- * 
+ *
  * Flow:
- * 1. Collect form config
- * 2. Get selected methodology plugin (e.g., "longitudinal-prediction")
- * 3. Get selected analysis template plugin (e.g., "logistic-regression")
- * 4. Call methodology.buildSQL() to generate study.sql
- * 5. Call methodology.describeRules() to generate README.md
- * 6. Call template.buildScript() to generate analysis script
- * 7. Build one timestamped zip package for all generated files
- * 8. If best-practice mode enabled, generate additional artifacts
+ *   1. Collect form config              (getFormConfig)
+ *   2. Validate inputs                  (validateConfig)
+ *   3. Get selected methodology plugin  (e.g. "longitudinal-prediction")
+ *   4. Get selected analysis template   (e.g. "logistic-regression")
+ *   5. methodology.buildSQL(config)     -> study.sql content
+ *   6. methodology.describeRules(cfg)   -> README.md content
+ *   7. template.buildScript(config)     -> analysis script content
+ *   8. If best-practice mode, add extra artifacts
+ *   9. Package everything into a timestamped zip
  */
-async function generate() {
-  // Collect and normalize all form inputs
-  const config = getFormConfig();
+function generate() {
+  // Collect and normalise all form inputs
+  var config = getFormConfig();
 
   // Validate inputs before SQL generation
-  const validationErrors = validateConfig(config);
+  var validationErrors = validateConfig(config);
   if (validationErrors.length > 0) {
     alert("Configuration errors:\n\n• " + validationErrors.join("\n• "));
     return;
   }
 
   // Load selected plugins
-  const methodology = RapidML.Methodologies.get(config.methodology);
-  const template = RapidML.AnalysisTemplates.get(config.analysisTemplate);
+  var methodology = RapidML.Methodologies.get(config.methodology);
+  var template = RapidML.AnalysisTemplates.get(config.analysisTemplate);
 
   // Validate plugins are available
   if (!methodology) {
@@ -437,12 +498,12 @@ async function generate() {
 
   try {
     // Generate content using plugins
-    const sql = methodology.buildSQL(config, config.db);
-    const readme = methodology.describeRules(config);
-    const runScript = template.buildScript(config);
-    const timestamp = buildTimestamp();
+    var sql = methodology.buildSQL(config, config.db);
+    var readme = methodology.describeRules(config);
+    var runScript = template.buildScript(config);
+    var timestamp = buildTimestamp();
 
-    const files = [
+    var files = [
       { filename: "study.sql", content: sql, mimeType: "text/plain" },
       { filename: "README.md", content: readme, mimeType: "text/markdown" },
       { filename: template.filename, content: runScript, mimeType: "text/plain" }
@@ -450,7 +511,7 @@ async function generate() {
 
     // Add optional best-practice artifacts if enabled.
     if (config.bestPracticeMode && RapidML.Compiler && typeof RapidML.Compiler.buildArtifacts === "function") {
-      const artifacts = RapidML.Compiler.buildArtifacts(config, methodology.id);
+      var artifacts = RapidML.Compiler.buildArtifacts(config, methodology.id);
       if (artifacts && artifacts.length) {
         artifacts.forEach(function(item) {
           files.push({
@@ -462,7 +523,7 @@ async function generate() {
       }
     }
 
-    await downloadPackage(files, timestamp);
+    downloadPackage(files, timestamp);
   } catch (err) {
     alert("Package generation failed: " + (err && err.message ? err.message : err));
   }

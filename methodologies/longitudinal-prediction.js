@@ -1,92 +1,157 @@
 /**
- * RapidML Methodology Plugin: Longitudinal Prediction
+ * ============================================================================
+ * LONGITUDINAL-PREDICTION.JS  -  Methodology Plugin: Longitudinal Prediction
+ * ============================================================================
  *
- * Study design: Repeated-index spine with yearly follow-up windows.
- * Each patient gets one row per (person_id, index_date) pair, covering
- * a baseline look-back window and an outcome look-forward window.
+ * PURPOSE:
+ *   Implements a repeated-index study design.  Each patient gets one row
+ *   per (person_id, index_date) pair covering a baseline look-back window
+ *   and an outcome look-forward window.  Index dates are generated yearly
+ *   from the patient's cohort entry date.
  *
- * This file does NOT contain SQL — it delegates to the OMOP compiler
- * via RapidML.Compiler.compileStudy(config). It provides:
- *   1. buildSQL()       → call the compiler
- *   2. describeRules()  → build the generated README (Markdown)
+ * HOW IT WORKS:
+ *   This file does NOT contain raw SQL queries.  Instead it uses the
+ *   compiler toolkit (omop/compiler.js) as building blocks and adds its
+ *   own spine strategy:
  *
- * Self-registers on RapidML.Methodologies.
+ *   1. Calls compiler.buildConceptCTEs  -> concept resolution
+ *   2. Calls compiler.buildCohortCTE    -> cohort (person_id, t0)
+ *   3. Calls compiler.buildAnchorCTE    -> index_anchor (clamped t0)
+ *   4. Builds its own spine CTE         -> repeated yearly windows via
+ *                                          a generate_series / ROW_NUMBER
+ *                                          integer series
+ *   5. Calls compiler.buildFirstOutcomeCTE  -> first outcome date
+ *   6. Calls compiler.buildCensoredSpineCTE -> censoring filters
+ *   7. Calls compiler.buildFinalSelect      -> covariates + label
+ *
+ *   It also builds the generated README.md via describeRules().
+ *
+ * PLUGIN INTERFACE:
+ *   id              -> "longitudinal-prediction"
+ *   label           -> "Longitudinal prediction (default)"
+ *   buildSQL(config) -> complete SQL string (production or debug)
+ *   describeRules(config) -> Markdown README string
+ *
+ * SELF-REGISTERS on RapidML.Methodologies
+ *
+ * DEPENDS ON:
+ *   core/generator.js    (RapidML.Methodologies.register)
+ *   core/dialects.js     (RapidML.Compiler.Dialects)
+ *   omop/compiler.js     (RapidML.Compiler.*)
+ * ============================================================================
  */
 
 (function () {
 
   // ---------------------------------------------------------------
-  //  Label maps — human-readable descriptions for rule IDs
-  // ---------------------------------------------------------------
-
-  var COHORT_MODE_LABELS = {
-    first_event:                "1 condition record",
-    visit_count:                "2 condition records on 2 distinct visits",
-    condition_lab_diff_visits:  "1 condition record and 1 lab record on different visits",
-    condition_or_lab:           "1 condition record OR 1 lab record"
-  };
-
-  var OUTCOME_MODE_LABELS = {
-    condition_occurrence:  "1 condition record in the outcome window",
-    two_condition_records: "2 condition records in the outcome window",
-    lab_threshold:         "1 lab record above or below threshold in the outcome window",
-    condition_or_lab:      "1 condition record OR 1 lab record in the outcome window"
-  };
-
-  var VISIT_FILTER_LABELS = {
-    all:        "All visit types",
-    inpatient:  "Inpatient visits only",
-    outpatient: "Outpatient visits only",
-    emergency:  "Emergency visits only",
-    custom:     "Custom visit concept IDs"
-  };
-
-  // ---------------------------------------------------------------
   //  Config readers — safely extract values from the config object
   // ---------------------------------------------------------------
 
-  function cohortConditionId(config) {
-    return (config.cohortEntry && config.cohortEntry.conditionConceptId) || "missing";
+  /** OMOP table mapping for human-readable evidence descriptions */
+  var TABLE_MAP = {
+    diagnosis:   { table: "condition_occurrence",  conceptCol: "condition_concept_id",  dateCol: "condition_start_date" },
+    lab:         { table: "measurement",           conceptCol: "measurement_concept_id", dateCol: "measurement_date" },
+    drug:        { table: "drug_exposure",         conceptCol: "drug_concept_id",        dateCol: "drug_exposure_start_date" },
+    procedure:   { table: "procedure_occurrence",  conceptCol: "procedure_concept_id",   dateCol: "procedure_date" },
+    observation: { table: "observation",           conceptCol: "observation_concept_id",  dateCol: "observation_date" },
+    visit:       { table: "visit_occurrence",      conceptCol: "visit_concept_id",        dateCol: "visit_start_date" }
+  };
+
+  var VISIT_CONTEXT_LABELS = {
+    all: "Any visit type",
+    inpatient: "Inpatient only (concept 9201)",
+    outpatient: "Outpatient only (concept 9202)",
+    emergency: "Emergency only (concept 9203)",
+    custom: "Custom visit concept IDs"
+  };
+
+  /** Build a detailed Markdown description for a single evidence row */
+  function describeRowDetailed(row, idx) {
+    var mapping = TABLE_MAP[row.type] || {};
+    var lines = [];
+    var label = row.label ? row.label : (row.type + " concept " + (row.conceptId || "?"));
+
+    lines.push("#### Row " + (idx + 1) + ": " + label);
+    lines.push("");
+    lines.push("| Property | Value |");
+    lines.push("|----------|-------|");
+    lines.push("| Type | " + (row.type || "unknown") + " |");
+    lines.push("| Concept ID | " + (row.conceptId || "not set") + " |");
+    lines.push("| OMOP Table | `" + (mapping.table || "unknown") + "` |");
+    lines.push("| Concept Column | `" + (mapping.conceptCol || "unknown") + "` |");
+    lines.push("| Date Column | `" + (mapping.dateCol || "unknown") + "` |");
+    lines.push("| Include Descendants | " + (row.descendants ? "Yes — resolves via `concept_ancestor` table" : "No — exact concept ID match only") + " |");
+
+    // Lab / observation threshold
+    if ((row.type === "lab" || row.type === "observation") && row.operator && row.value) {
+      lines.push("| Value Threshold | `value_as_number " + row.operator + " " + row.value + "` |");
+    }
+
+    // MinCount
+    var minCount = parseInt(row.minCount, 10) || 1;
+    if (minCount > 1) {
+      lines.push("| Minimum Records | " + minCount + (row.distinctVisits ? " distinct visits" : " records") + " |");
+    }
+
+    // Distinct visits
+    if (row.distinctVisits) {
+      lines.push("| Count Mode | Distinct `visit_occurrence_id` values |");
+    }
+
+    // Visit context
+    var vc = row.visitContext || "all";
+    if (vc !== "all") {
+      lines.push("| Visit Context | " + (VISIT_CONTEXT_LABELS[vc] || vc) + " |");
+      if (vc === "custom" && row.visitContextIds && row.visitContextIds.length) {
+        lines.push("| Custom Visit IDs | " + row.visitContextIds.join(", ") + " |");
+      }
+    }
+
+    // SQL logic summary
+    lines.push("");
+    lines.push("**SQL Logic:** Query `" + (mapping.table || "?") + "` WHERE `" +
+      (mapping.conceptCol || "?") + "` ");
+    if (row.descendants) {
+      lines.push("IN (SELECT `descendant_concept_id` FROM `concept_ancestor` WHERE `ancestor_concept_id` = " +
+        (row.conceptId || "?") + ")");
+    } else {
+      lines.push("= " + (row.conceptId || "?"));
+    }
+    if ((row.type === "lab" || row.type === "observation") && row.operator && row.value) {
+      lines.push("AND `value_as_number` " + row.operator + " " + row.value);
+    }
+    if (vc !== "all") {
+      lines.push("filtered to " + (VISIT_CONTEXT_LABELS[vc] || vc) + " visits via JOIN to `visit_occurrence`");
+    }
+    if (minCount > 1) {
+      if (row.distinctVisits) {
+        lines.push(", requiring HAVING COUNT(DISTINCT `visit_occurrence_id`) >= " + minCount);
+      } else {
+        lines.push(", requiring HAVING COUNT(*) >= " + minCount);
+      }
+    }
+
+    return lines;
   }
 
-  function cohortMeasurementId(config) {
-    return (config.cohortEntry && config.cohortEntry.measurementConceptId) || "missing";
-  }
-
-  function outcomeConditionId(config) {
-    return (config.outcomeRule && config.outcomeRule.conceptId) || config.outcomeConceptId || "missing";
-  }
-
-  function outcomeMeasurementId(config) {
-    return (config.outcomeRule && config.outcomeRule.measurementConceptId) || "missing";
-  }
-
-  function visitFilterMode(config) {
-    return (config.visitFilter && config.visitFilter.mode) || "all";
-  }
-
-  function visitFilterConceptText(config) {
-    var mode = visitFilterMode(config);
-    if (mode !== "custom") return "n/a";
-    var ids = config.visitFilter && config.visitFilter.conceptIds;
-    return (ids && ids.length) ? ids.join(", ") : "missing";
-  }
-
-  function cohortNeedsLab(config) {
-    return config.cohortEntryMode === "condition_lab_diff_visits"
-        || config.cohortEntryMode === "condition_or_lab";
-  }
-
-  function outcomeNeedsCondition(config) {
-    var m = config.outcomeRule && config.outcomeRule.mode;
-    return m === "condition_occurrence"
-        || m === "two_condition_records"
-        || m === "condition_or_lab";
-  }
-
-  function outcomeNeedsLab(config) {
-    var m = config.outcomeRule && config.outcomeRule.mode;
-    return m === "lab_threshold" || m === "condition_or_lab";
+  /** Summarize evidence rows as a brief one-line string (for config table) */
+  function describeEvidenceRows(rows) {
+    if (!rows || !rows.length) return "none";
+    return rows.map(function(r) {
+      var desc = r.type + " concept " + (r.conceptId || "?");
+      if (r.label) desc = r.label + " (" + desc + ")";
+      if (r.type === "lab" && r.operator && r.value) {
+        desc += " " + r.operator + " " + r.value;
+      }
+      if (r.descendants) desc += " +descendants";
+      var minCount = parseInt(r.minCount, 10) || 1;
+      if (minCount > 1) {
+        desc += " ≥" + minCount + (r.distinctVisits ? " distinct visits" : " records");
+      } else if (r.distinctVisits) {
+        desc += " (distinct visits)";
+      }
+      return desc;
+    }).join("; ");
   }
 
   // ---------------------------------------------------------------
@@ -95,16 +160,22 @@
 
   /** Title line */
   function buildTitle(config) {
+    var entry = config.study && config.study.entry && config.study.entry.rows;
+    var outcome = config.study && config.study.outcome && config.study.outcome.rows;
+    var entryLabel = entry && entry.length ? (entry[0].label || entry[0].conceptId || "?") : "?";
+    var outcomeLabel = outcome && outcome.length ? (outcome[0].label || outcome[0].conceptId || "?") : "?";
     return [
-      "# Study: OMOP cohort " + cohortConditionId(config) + " → outcome " + outcomeConditionId(config)
+      "# Study: " + entryLabel + " → " + outcomeLabel
     ];
   }
 
   /** Configuration summary table */
   function buildConfigTable(config) {
-    var baselineDays = Number(config.baselineYears) * 365;
-    var outcomeDays  = Number(config.outcomeYears) * 365;
+    var baselineDays = Number(config.baselineDays) || 365;
+    var outcomeDays  = Number(config.outcomeDays) || 365;
     var covariates   = (config.covariates || []).join(", ") || "none";
+    var entry = config.study && config.study.entry;
+    var outcome = config.study && config.study.outcome;
 
     return [
       "## Configuration Summary",
@@ -114,13 +185,14 @@
       "| Methodology | Longitudinal prediction (repeated-index spine) |",
       "| Database | " + config.db + " |",
       "| Schema | " + config.schema + " |",
+      "| Data model | " + (config.dataModel || "omop") + " |",
       "| Study period | " + config.startYear + "-01-01 to " + config.endYear + "-12-31 |",
-      "| Cohort entry rule | " + (COHORT_MODE_LABELS[config.cohortEntryMode] || COHORT_MODE_LABELS.first_event) + " |",
-      "| Outcome rule | " + (OUTCOME_MODE_LABELS[config.outcomeRule.mode] || OUTCOME_MODE_LABELS.condition_occurrence) + " |",
-      "| Visit filter | " + (VISIT_FILTER_LABELS[visitFilterMode(config)] || VISIT_FILTER_LABELS.all) + " |",
-      "| Visit concept IDs (custom) | " + visitFilterConceptText(config) + " |",
-      "| Baseline window | " + config.baselineYears + " year(s) (" + baselineDays + " days) |",
-      "| Outcome window | " + config.outcomeYears + " year(s) (" + outcomeDays + " days) |",
+      "| Entry criteria | " + (entry ? entry.rows.length + " row(s), match=" + entry.match : "none") + " |",
+      "| Outcome criteria | " + (outcome ? outcome.rows.length + " row(s), match=" + outcome.match : "none") + " |",
+      "| Exclusions | " + ((config.study && config.study.exclusions && config.study.exclusions.length) || 0) + " row(s) |",
+      "| Confounders | " + ((config.study && config.study.confounders && config.study.confounders.length) || 0) + " row(s) |",
+      "| Baseline window | " + baselineDays + " days |",
+      "| Outcome window | " + outcomeDays + " days |",
       "| Covariate encoding | " + (config.covariateEncoding || "count") + " |",
       "| Selected covariates | " + covariates + " |",
       "| Debug mode | " + (config.debug ? "enabled" : "disabled") + " |",
@@ -128,32 +200,84 @@
     ];
   }
 
-  /** Lists which concept IDs the selected rules actually need */
-  function buildRequiredInputs(config) {
-    var lines = ["## Required Inputs"];
+  /** Lists evidence blocks with detailed row-by-row logic descriptions */
+  function buildStudyDefinition(config) {
+    var lines = ["## Study Definition — Detailed Evidence Logic"];
 
-    lines.push("- **Cohort condition concept**: " + cohortConditionId(config));
-
-    if (cohortNeedsLab(config)) {
-      lines.push("- **Cohort measurement**: concept " + cohortMeasurementId(config)
-        + " " + ((config.cohortEntry && config.cohortEntry.measurementOperator) || ">")
-        + " " + ((config.cohortEntry && config.cohortEntry.measurementValue) || "missing"));
+    var entry = config.study && config.study.entry;
+    lines.push("");
+    lines.push("### Cohort Entry Criteria");
+    if (entry && entry.rows && entry.rows.length) {
+      lines.push("");
+      lines.push("**Match mode:** `" + (entry.match || "all") + "` — " +
+        (entry.match === "any"
+          ? "patient must match ANY of the following criteria (union)"
+          : "patient must match ALL of the following criteria (intersection)"));
+      lines.push("");
+      if (entry.match === "all" && entry.rows.length > 1) {
+        lines.push("**SQL combination logic:** All row subqueries are combined, then filtered with " +
+          "`HAVING COUNT(DISTINCT row_idx) = " + entry.rows.length + "`. " +
+          "The cohort entry date (t0) is the `MAX(event_date)` across matching rows.");
+      } else if (entry.match === "any" && entry.rows.length > 1) {
+        lines.push("**SQL combination logic:** Row subqueries are combined with `UNION ALL`, " +
+          "then grouped by `person_id` using `MIN(event_date)` as the cohort entry date (t0).");
+      }
+      lines.push("");
+      for (var i = 0; i < entry.rows.length; i++) {
+        lines = lines.concat(describeRowDetailed(entry.rows[i], i));
+        lines.push("");
+      }
     } else {
-      lines.push("- **Cohort measurement**: not required by selected rule");
+      lines.push("");
+      lines.push("No entry criteria defined.");
     }
 
-    if (outcomeNeedsCondition(config)) {
-      lines.push("- **Outcome condition concept**: " + outcomeConditionId(config));
+    var outcome = config.study && config.study.outcome;
+    lines.push("### Outcome Criteria");
+    if (outcome && outcome.rows && outcome.rows.length) {
+      lines.push("");
+      lines.push("**Match mode:** `" + (outcome.match || "all") + "` — " +
+        (outcome.match === "any"
+          ? "any of the following qualifies as an outcome event"
+          : "all of the following must be present for an outcome event"));
+      lines.push("");
+      for (var j = 0; j < outcome.rows.length; j++) {
+        lines = lines.concat(describeRowDetailed(outcome.rows[j], j));
+        lines.push("");
+      }
+      lines.push("**Outcome labelling:** If a matching outcome event occurs within the outcome window " +
+        "(`outcome_start` to `outcome_end`), `outcome_label = 1`; otherwise `outcome_label = 0`.");
     } else {
-      lines.push("- **Outcome condition concept**: not required by selected rule");
+      lines.push("");
+      lines.push("No outcome criteria defined.");
     }
 
-    if (outcomeNeedsLab(config)) {
-      lines.push("- **Outcome measurement**: concept " + outcomeMeasurementId(config)
-        + " " + ((config.outcomeRule && config.outcomeRule.measurementOperator) || ">")
-        + " " + ((config.outcomeRule && config.outcomeRule.measurementValue) || "missing"));
-    } else {
-      lines.push("- **Outcome measurement**: not required by selected rule");
+    var excl = config.study && config.study.exclusions;
+    if (excl && excl.length) {
+      lines.push("");
+      lines.push("### Exclusion Criteria");
+      lines.push("");
+      lines.push("Each exclusion row generates a `NOT EXISTS` subquery. " +
+        "Patients matching **any** exclusion row are removed from the final dataset.");
+      lines.push("");
+      for (var k = 0; k < excl.length; k++) {
+        lines = lines.concat(describeRowDetailed(excl[k], k));
+        lines.push("");
+      }
+    }
+
+    var conf = config.study && config.study.confounders;
+    if (conf && conf.length) {
+      lines.push("");
+      lines.push("### Confounder Flags");
+      lines.push("");
+      lines.push("Each confounder row generates a binary flag column (0 or 1) in the final output. " +
+        "These are additional features that indicate presence of a condition/treatment during baseline.");
+      lines.push("");
+      for (var m = 0; m < conf.length; m++) {
+        lines = lines.concat(describeRowDetailed(conf[m], m));
+        lines.push("");
+      }
     }
 
     return lines;
@@ -164,19 +288,20 @@
     return [
       "## SQL Pipeline",
       "",
-      "1. Resolve entry and outcome concept descendants from OMOP vocabulary tables.",
-      "2. Build cohort entry dates (t0) based on selected cohort rule.",
-      "3. Join entry events through `visit_occurrence` for consistent visit-context filtering.",
-      "4. Build repeated yearly index windows with baseline/outcome periods.",
-      "5. Apply censoring: first-outcome handling + observation period checks + study end boundary.",
-      "6. Compute `outcome_label` and append selected covariates.",
+      "1. Resolve concept descendants for each evidence row from OMOP vocabulary tables.",
+      "2. Build cohort entry dates (t0) by combining entry evidence rows.",
+      "3. Build repeated yearly index windows with baseline/outcome periods.",
+      "4. Apply censoring: first-outcome handling + observation period checks + study end boundary.",
+      "5. Apply exclusion criteria (if any).",
+      "6. Compute `outcome_label` and append covariates + confounder flags.",
       "",
       "## Output",
       "",
       "One row per `(person_id, index_date)` with:",
       "- Time-window columns (baseline_start, baseline_end, outcome_start, outcome_end)",
       "- `outcome_label` (0 = no event, 1 = event, NULL = censored)",
-      "- Selected covariates"
+      "- Selected covariates",
+      "- Confounder flags (if defined)"
     ];
   }
 
@@ -219,26 +344,27 @@
   function buildWindowExpressions(config) {
     var d = RapidML.Compiler.Dialects;
     var db = config.db;
-    var baselineDays = String(Number(config.baselineYears) * 365);
-    var outcomeDays  = String(Number(config.outcomeYears) * 365);
+    var baselineDays = String(Number(config.baselineDays) || 365);
+    var outcomeDays  = String(Number(config.outcomeDays) || 365);
+    var stepDays     = baselineDays;  // each index step = baselineDays wide
 
     return {
       baselineDays: baselineDays,
       outcomeDays: outcomeDays,
       firstIndexDateExpr: d.addDaysExpr(db, "a.exposure_index_date", baselineDays),
-      indexDateExpr:      d.addYearsExpr(db, "a.first_index_date", "nums.n"),
-      baselineStartExpr:  d.addDaysExpr(db, "a.first_index_date", "(nums.n * 365) - " + baselineDays),
-      baselineEndExpr:    d.addDaysExpr(db, "a.first_index_date", "(nums.n * 365) - 1"),
-      outcomeStartExpr:   d.addYearsExpr(db, "a.first_index_date", "nums.n"),
-      outcomeEndExpr:     d.addDaysExpr(db, d.addYearsExpr(db, "a.first_index_date", "nums.n"), outcomeDays)
+      indexDateExpr:      d.addDaysExpr(db, "a.first_index_date", "nums.n * " + stepDays),
+      baselineStartExpr:  d.addDaysExpr(db, "a.first_index_date", "(nums.n * " + stepDays + ") - " + baselineDays),
+      baselineEndExpr:    d.addDaysExpr(db, "a.first_index_date", "(nums.n * " + stepDays + ") - 1"),
+      outcomeStartExpr:   d.addDaysExpr(db, "a.first_index_date", "nums.n * " + stepDays),
+      outcomeEndExpr:     d.addDaysExpr(db, d.addDaysExpr(db, "a.first_index_date", "nums.n * " + stepDays), outcomeDays)
     };
   }
 
-  /** Build the spine CTE — repeated yearly windows via nums series */
+  /** Build the spine CTE — repeated index windows via nums series */
   function buildSpineCTE(config, ctx, windowExpr) {
     var C = RapidML.Compiler;
     return C.sqlLines([
-      "-- Build repeated yearly index windows per person",
+      "-- Build repeated index windows per person",
       "spine AS (",
       "  SELECT",
       "    a.person_id,",
@@ -410,7 +536,7 @@
         [""],
         buildConfigTable(config),
         [""],
-        buildRequiredInputs(config),
+        buildStudyDefinition(config),
         [""],
         buildPipelineDescription(),
         [""],

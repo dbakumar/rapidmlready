@@ -1,29 +1,42 @@
+/**
+ * ============================================================================
+ * COMPILER.JS  -  OMOP Compiler Toolkit (Building Blocks for Methodologies)
+ * ============================================================================
+ *
+ * PURPOSE:
+ *   The compiler does NOT build the complete study SQL on its own.
+ *   Instead it exposes a set of reusable building blocks that each
+ *   methodology plugin (e.g. longitudinal-prediction.js) assembles
+ *   with its own spine / window strategy.
+ *
+ * BUILDING BLOCKS:
+ *   prepareContext(config)               -> shared context (dialects, dates,
+ *                                           covariates, adapter)
+ *   buildConceptCTEs(config, ctx)        -> concept-resolution CTEs
+ *   buildCohortCTE(config, ctx)          -> cohort (person_id, t0)
+ *   buildAnchorCTE(config, ctx, days)    -> index_anchor (clamped t0)
+ *   buildFirstOutcomeCTE(config, ctx)    -> first_outcome (person_id, date)
+ *   buildCensoredSpineCTE(config, ctx)   -> final_spine from spine
+ *   outcomeLabelExpr(config, ctx)        -> CASE expression
+ *   buildFinalSelect(config, ctx)        -> SELECT columns + JOIN clauses
+ *   buildHeader(config, label)           -> SQL file header comment
+ *   buildPerformanceHints(config)        -> DB-specific ANALYZE hints
+ *   buildDebugHelpers(config, ctx)       -> temp-table helper functions
+ *   buildDebugConceptSteps / CohortStep / OutcomeStep / CensoringStep / FinalStep
+ *   sqlLines(lines)                      -> join non-empty lines
+ *
+ * ADAPTER ROUTING:
+ *   The compiler delegates data-model-specific SQL generation to the
+ *   registered adapter (e.g. OMOP via omop/evidence-sql.js).  The\n *   adapter is selected based on config.dataModel (default: \"omop\").
+ *
+ * DEPENDS ON:\n *   core/generator.js       (RapidML.Adapters)\n *   core/dialects.js        (RapidML.Compiler.Dialects)\n *   omop/censoring.js       (RapidML.Compiler.Censoring)\n *   omop/covariates.js      (RapidML.Compiler.Covariates)\n *   omop/evidence-sql.js    (OMOP adapter registration)\n *
+ * USED BY:\n *   methodologies/*.js      (call building blocks to assemble SQL)\n *   core/generator.js       (generate -> methodology -> compiler)\n *
+ * PUBLIC API (exposed on RapidML.Compiler):\n *   All building block functions listed above.\n * ============================================================================\n */
 (function() {
   window.RapidML = window.RapidML || {};
   RapidML.Compiler = RapidML.Compiler || {};
 
-  // ===================================================================
-  //  COMPILER TOOLKIT
-  //
-  //  The compiler does NOT build the complete study SQL.  It exposes
-  //  building blocks that each methodology assembles with its own
-  //  spine / window strategy.
-  //
-  //  Building blocks:
-  //    prepareContext(config)        → shared objects (dialects, dates, covariates)
-  //    buildConceptCTEs(config)      → 4 CTEs: entry root, entry descendants,
-  //                                    outcome root, outcome descendants
-  //    buildCohortCTE(config)        → 1 CTE: cohort (person_id, t0)
-  //    buildAnchorCTE(config, ctx)   → 1 CTE: index_anchor
-  //    buildFirstOutcomeCTE(config)  → 1 CTE: first_outcome
-  //    buildCensoredSpineCTE(config, ctx) → 1 CTE: final_spine from spine
-  //    outcomeLabelExpr(config)      → CASE expression for outcome_label
-  //    buildFinalSelect(config, ctx) → final SELECT columns + covariate joins
-  //    buildDebugHelpers(config, ctx)→ temp-table helper functions
-  //    sqlLines(lines)               → join non-empty lines
-  //    buildHeader(config, label)    → SQL comment header
-  // ===================================================================
-
+  /** Join an array of strings, filtering out null/undefined/empty values. */
   function sqlLines(lines) {
     return lines.filter(function(line) { return line !== null && line !== undefined && line !== ""; }).join("\n");
   }
@@ -33,10 +46,16 @@
       RapidML.Compiler.Dialects &&
       RapidML.Compiler.Censoring &&
       RapidML.Compiler.Covariates &&
-      RapidML.Compiler.Domains &&
-      RapidML.Compiler.Domains.Outcomes &&
-      RapidML.Compiler.Domains.CohortEntry
+      RapidML.Adapters
     );
+  }
+
+  /** Get the adapter for evidence-based configs */
+  function getAdapter(config) {
+    if (config.study && RapidML.Adapters) {
+      return RapidML.Adapters.get(config.dataModel || "omop");
+    }
+    return null;
   }
 
   /**
@@ -47,7 +66,7 @@
     if (!requiredModulesPresent()) {
       throw new Error(
         "Compiler modules not loaded. Ensure scripts are included: " +
-        "core/dialects, omop/censoring, omop/covariates, rules/outcome-sql, rules/cohort-sql."
+        "core/dialects, core/adapter-registry, omop/censoring, omop/covariates."
       );
     }
 
@@ -56,30 +75,29 @@
     var studyStart = d.quoteDateLiteral(config.db, config.startYear, 1, 1);
     var studyEnd = d.quoteDateLiteral(config.db, config.endYear, 12, 31);
 
+    var adapter = getAdapter(config);
+    var bridge = adapter.buildDomainBridge(config);
+
     return {
       d: d,
       covariates: covariates,
       studyStart: studyStart,
       studyEnd: studyEnd,
-      outcomes: RapidML.Compiler.Domains.Outcomes,
-      cohortEntry: RapidML.Compiler.Domains.CohortEntry,
-      isPostgres: config.db === "postgres"
+      outcomes: bridge.outcomes,
+      cohortEntry: bridge.cohortEntry,
+      isPostgres: config.db === "postgres",
+      adapter: adapter
     };
   }
 
   /** 4 CTEs: entry condition root/descendants, outcome root/descendants */
   function buildConceptCTEs(config, ctx) {
-    return [
-      ctx.outcomes.entryConditionRootCTE(config),
-      ctx.outcomes.entryConditionDescendantsCTE(config),
-      ctx.outcomes.outcomeRootCTE(config),
-      ctx.outcomes.outcomeDescendantsCTE(config)
-    ];
+    return ctx.adapter.buildConceptCTEs(config);
   }
 
   /** Cohort CTE — produces person_id, t0 */
   function buildCohortCTE(config, ctx) {
-    return ctx.cohortEntry.buildCohortCTE(config);
+    return ctx.adapter.buildCohortCTE(config);
   }
 
   /**
@@ -108,29 +126,36 @@
 
   /** First outcome CTE — produces person_id, outcome_date */
   function buildFirstOutcomeCTE(config, ctx) {
-    return ctx.outcomes.firstOutcomeCTE(config);
+    return ctx.adapter.buildFirstOutcomeCTE(config);
   }
 
   /**
    * Censored spine CTE — takes the spine (built by methodology) and
-   * applies censoring filters.  Assumes an existing CTE named "spine".
+   * applies censoring filters + exclusions.  Assumes an existing CTE named "spine".
    */
   function buildCensoredSpineCTE(config, ctx) {
+    var censorWhere = RapidML.Compiler.Censoring.buildCensoringWhere(config);
+
+    var exclusionWhere = ctx.adapter.buildExclusionWhere(config);
+    if (exclusionWhere) {
+      censorWhere = censorWhere + "\n    AND " + exclusionWhere;
+    }
+
     return sqlLines([
-      "-- Apply outcome and observation-period censoring",
+      "-- Apply outcome and observation-period censoring" + (config.study && config.study.exclusions && config.study.exclusions.length ? " + exclusions" : ""),
       "final_spine AS (",
       "  SELECT s.*",
       "  FROM spine s",
       "  LEFT JOIN first_outcome o ON s.person_id = o.person_id",
       "  JOIN " + config.schema + ".observation_period op ON s.person_id = op.person_id",
-      "  WHERE " + RapidML.Compiler.Censoring.buildCensoringWhere(config),
+      "  WHERE " + censorWhere,
       ")"
     ]);
   }
 
   /** CASE expression for outcome_label */
   function outcomeLabelExpr(config, ctx) {
-    return ctx.outcomes.outcomeLabelExpr(config);
+    return ctx.adapter.buildOutcomeLabelExpr(config);
   }
 
   /** Build the final SELECT columns array and covariate JOIN clauses */
@@ -139,6 +164,9 @@
       "s.*",
       outcomeLabelExpr(config, ctx)
     ].concat(ctx.covariates.columns || []);
+
+    var confResult = ctx.adapter.buildConfounderColumns(config);
+    selectColumns = selectColumns.concat(confResult.columns || []);
 
     return {
       columns: selectColumns,
@@ -149,15 +177,20 @@
   /** SQL comment header for the top of the generated file */
   function buildHeader(config, label) {
     var mode = config.debug ? "DEBUG" : "PRODUCTION";
-    var entryConceptId = (config.cohortEntry && config.cohortEntry.conditionConceptId) || "missing";
-    var outcomeConceptId = (config.outcomeRule && config.outcomeRule.conceptId) || config.outcomeConceptId || "missing";
+    var entryDesc, outcomeDesc;
+
+    var entryRows = config.study && config.study.entry ? config.study.entry.rows.length : 0;
+    var outcomeRows = config.study && config.study.outcome ? config.study.outcome.rows.length : 0;
+    entryDesc = entryRows + " evidence row(s), match=" + ((config.study && config.study.entry && config.study.entry.match) || "all");
+    outcomeDesc = outcomeRows + " evidence row(s), match=" + ((config.study && config.study.outcome && config.study.outcome.match) || "any");
+
     return sqlLines([
       "/***********************************************************************",
       " " + mode + " SQL — " + label,
       " Database: " + (config.db === "postgres" ? "PostgreSQL" : "SQL Server"),
-      " Entry condition concept: " + entryConceptId,
-      " Outcome concept: " + outcomeConceptId,
-      " Cohort entry mode: " + (config.cohortEntryMode || "first_event"),
+      " Entry: " + entryDesc,
+      " Outcome: " + outcomeDesc,
+      " Data model: " + (config.dataModel || "omop"),
       "***********************************************************************/"
     ]);
   }
@@ -258,60 +291,21 @@
   // =================================================================
 
   function buildDebugConceptSteps(config, ctx, dbg) {
-    var entryConceptId = String((config.cohortEntry && config.cohortEntry.conditionConceptId) || "0").replace(/[^0-9]/g, "");
-    var outcomeConceptId = String((config.outcomeRule && config.outcomeRule.conceptId) || config.outcomeConceptId || "0").replace(/[^0-9]/g, "");
-
-    return sqlLines([
-      "-- STEP 1: Resolve entry condition root concept",
-      dbg.dropTemp("entry_condition_root"),
-      dbg.createTempFromSelect(
-        "entry_condition_root",
-        "  concept_id",
-        "FROM " + config.schema + ".concept\nWHERE concept_id = " + entryConceptId + "\n  AND standard_concept = 'S'"
-      ),
-      "SELECT * FROM " + dbg.tmpName("entry_condition_root") + ";",
-      "",
-      "-- STEP 2: Expand entry condition descendants",
-      dbg.dropTemp("entry_condition_descendants"),
-      dbg.createTempFromSelect(
-        "entry_condition_descendants",
-        "  descendant_concept_id AS concept_id",
-        "FROM " + config.schema + ".concept_ancestor\nWHERE ancestor_concept_id IN (SELECT concept_id FROM " + dbg.tmpName("entry_condition_root") + ")"
-      ),
-      "SELECT COUNT(*) AS entry_descendant_count FROM " + dbg.tmpName("entry_condition_descendants") + ";",
-      "",
-      "-- STEP 3: Resolve outcome root concept",
-      dbg.dropTemp("outcome_root"),
-      dbg.createTempFromSelect(
-        "outcome_root",
-        "  concept_id",
-        "FROM " + config.schema + ".concept\nWHERE concept_id = " + outcomeConceptId + "\n  AND standard_concept = 'S'"
-      ),
-      "SELECT * FROM " + dbg.tmpName("outcome_root") + ";",
-      "",
-      "-- STEP 4: Expand outcome descendants",
-      dbg.dropTemp("outcome_descendants"),
-      dbg.createTempFromSelect(
-        "outcome_descendants",
-        "  descendant_concept_id AS concept_id",
-        "FROM " + config.schema + ".concept_ancestor\nWHERE ancestor_concept_id IN (SELECT concept_id FROM " + dbg.tmpName("outcome_root") + ")"
-      ),
-      "SELECT COUNT(*) AS outcome_descendant_count FROM " + dbg.tmpName("outcome_descendants") + ";"
-    ]);
+    return "-- Evidence-based concept resolution (combined into cohort and outcome steps below)";
   }
 
   /** Cohort entry debug step */
   function buildDebugCohortStep(config, ctx, dbg) {
     var isPostgres = ctx.isPostgres;
+    var conceptCTEs = ctx.adapter.buildConceptCTEs(config).filter(Boolean);
+    var cohortCTE = ctx.adapter.buildCohortCTE(config);
+    var allCTEs = conceptCTEs.concat([cohortCTE]).join(",\n");
     return sqlLines([
       "",
-      "-- STEP 5: Build cohort entry table (t0 per person)",
+      "-- STEP 5: Build evidence-based cohort (concept resolution + entry criteria)",
       dbg.dropTemp("cohort"),
       (isPostgres ? "CREATE TEMP TABLE " + dbg.tmpName("cohort") + " AS" : null),
-      "WITH entry_condition_descendants AS (",
-      "  SELECT concept_id FROM " + dbg.tmpName("entry_condition_descendants"),
-      "),",
-      ctx.cohortEntry.buildCohortCTE(config),
+      "WITH " + allCTEs,
       (isPostgres
         ? "SELECT * FROM cohort;"
         : "SELECT * INTO " + dbg.tmpName("cohort") + " FROM cohort;"),
@@ -322,15 +316,29 @@
   /** First outcome debug step */
   function buildDebugOutcomeStep(config, ctx, dbg, stepNum) {
     var isPostgres = ctx.isPostgres;
+    var outComCTEs = [];
+    if (config.study && config.study.outcome && config.study.outcome.rows) {
+      config.study.outcome.rows.forEach(function(row, i) {
+        if (row.descendants && row.type !== "lab") {
+          var cid = String(row.conceptId || "0").replace(/[^0-9]/g, "") || "0";
+          outComCTEs.push(
+            "outcome_r" + i + "_concepts AS (\n" +
+            "  SELECT descendant_concept_id AS concept_id\n" +
+            "  FROM " + config.schema + ".concept_ancestor\n" +
+            "  WHERE ancestor_concept_id = " + cid + "\n" +
+            ")"
+          );
+        }
+      });
+    }
+    var firstOutcomeCTE = ctx.adapter.buildFirstOutcomeCTE(config);
+    var allCTEs = outComCTEs.concat([firstOutcomeCTE]).join(",\n");
     return sqlLines([
       "",
-      "-- STEP " + stepNum + ": Compute first outcome date per person",
+      "-- STEP " + stepNum + ": Compute first outcome (evidence-based)",
       dbg.dropTemp("first_outcome"),
       (isPostgres ? "CREATE TEMP TABLE " + dbg.tmpName("first_outcome") + " AS" : null),
-      "WITH outcome_descendants AS (",
-      "  SELECT concept_id FROM " + dbg.tmpName("outcome_descendants"),
-      "),",
-      ctx.outcomes.firstOutcomeCTE(config),
+      "WITH " + allCTEs,
       (isPostgres
         ? "SELECT * FROM first_outcome;"
         : "SELECT * INTO " + dbg.tmpName("first_outcome") + " FROM first_outcome;"),
@@ -356,13 +364,63 @@
   /** Final labeled dataset debug step */
   function buildDebugFinalStep(config, ctx, dbg, stepNum) {
     var sel = buildFinalSelect(config, ctx);
+
+    var outComCTEs = [];
+    if (config.study && config.study.outcome && config.study.outcome.rows) {
+      config.study.outcome.rows.forEach(function(row, i) {
+        if (row.descendants && row.type !== "lab") {
+          var cid = String(row.conceptId || "0").replace(/[^0-9]/g, "") || "0";
+          outComCTEs.push(
+            "outcome_r" + i + "_concepts AS (\n" +
+            "  SELECT descendant_concept_id AS concept_id\n" +
+            "  FROM " + config.schema + ".concept_ancestor\n" +
+            "  WHERE ancestor_concept_id = " + cid + "\n" +
+            ")"
+          );
+        }
+      });
+    }
+
+    // Add exclusion concept CTEs if needed
+    if (config.study && config.study.exclusions) {
+      config.study.exclusions.forEach(function(exc, i) {
+        if (exc.descendants && exc.type !== "lab") {
+          var cid = String(exc.conceptId || "0").replace(/[^0-9]/g, "") || "0";
+          outComCTEs.push(
+            "excl_" + i + "_concepts AS (\n" +
+            "  SELECT descendant_concept_id AS concept_id\n" +
+            "  FROM " + config.schema + ".concept_ancestor\n" +
+            "  WHERE ancestor_concept_id = " + cid + "\n" +
+            ")"
+          );
+        }
+      });
+    }
+
+    // Add confounder concept CTEs if needed
+    if (config.study && config.study.confounders) {
+      config.study.confounders.forEach(function(conf, i) {
+        if (conf.descendants && conf.type !== "lab") {
+          var cid = String(conf.conceptId || "0").replace(/[^0-9]/g, "") || "0";
+          outComCTEs.push(
+            "conf_" + i + "_concepts AS (\n" +
+            "  SELECT descendant_concept_id AS concept_id\n" +
+            "  FROM " + config.schema + ".concept_ancestor\n" +
+            "  WHERE ancestor_concept_id = " + cid + "\n" +
+            ")"
+          );
+        }
+      });
+    }
+
+    var withClause = outComCTEs.length > 0
+      ? "WITH " + outComCTEs.join(",\n") + "\n"
+      : "";
+
     return sqlLines([
       "",
-      "-- STEP " + stepNum + ": Build final labeled dataset with selected covariates",
-      "WITH outcome_descendants AS (",
-      "  SELECT concept_id FROM " + dbg.tmpName("outcome_descendants"),
-      ")",
-      "SELECT",
+      "-- STEP " + stepNum + ": Build final labeled dataset with covariates",
+      withClause + "SELECT",
       "  " + sel.columns.join(",\n  "),
       "FROM " + dbg.tmpName("final_spine") + " s",
       sel.joins.join("\n"),

@@ -1,11 +1,49 @@
+/**
+ * ============================================================================
+ * COVARIATES.JS  -  OMOP Feature Engineering SQL Builder
+ * ============================================================================
+ *
+ * PURPOSE:
+ *   Builds the SQL columns and JOINs needed to add patient-level features
+ *   (covariates) to the final study output.  These include demographics,
+ *   baseline event counts, baseline lab values, and prior event history.
+ *
+ * HOW IT WORKS:
+ *   The user selects covariates in the wizard (step 4).  This file reads
+ *   that selection and emits the SQL fragments the compiler needs:
+ *     - columns[]  : SELECT expressions (subqueries, CASE, simple columns)
+ *     - joins[]    : LEFT JOIN clauses (e.g. person table)
+ *
+ *   The compiler's buildFinalSelect() merges these into the final SQL.
+ *
+ * SUPPORTED COVARIATE GROUPS:
+ *   Demographics:      age_at_index, sex, race, ethnicity
+ *   Baseline counts:   condition, drug, visit, measurement counts
+ *   Baseline labs:     eGFR, creatinine, HbA1c, BP, BMI
+ *   Prior history:     prior outcome, hospitalisation, ER visit, procedure
+ *
+ * ENCODING MODES:
+ *   "count"            - raw counts
+ *   "binary"           - 0/1 flags
+ *   "count_and_binary" - both
+ *
+ * DEPENDS ON:  nothing (standalone, attached to RapidML.Compiler.Covariates)
+ * USED BY:     omop/compiler.js  (prepareContext calls buildSelect)
+ *
+ * PUBLIC API:
+ *   RapidML.Compiler.Covariates.buildSelect(config)  ->  { columns, joins }
+ *   RapidML.Compiler.Covariates.STANDARD_CONCEPTS    ->  lab/visit concept IDs
+ * ============================================================================
+ */
 (function() {
   window.RapidML = window.RapidML || {};
   RapidML.Compiler = RapidML.Compiler || {};
 
   /**
-   * OMOP Standard Concept IDs for Common Labs and Visit Types
+   * OMOP Standard Concept IDs for Common Labs and Visit Types.
+   * These are used as defaults when the user selects lab-based covariates.
    */
-  const STANDARD_CONCEPTS = {
+  var STANDARD_CONCEPTS = {
     // Lab measurements (LOINC in OMOP)
     egfr: 3051823,                    // Estimated glomerular filtration rate
     hba1c: 3004410,                   // Hemoglobin A1c
@@ -42,10 +80,16 @@
       "AND x." + dateColumn + " BETWEEN s.baseline_start AND s.baseline_end";
   }
 
+  /**
+   * Check whether any demographic covariates are selected, which requires
+   * a JOIN to the person table.
+   */
   function personJoinRequired(covariates) {
-    return covariates.some(function(id) {
-      return ["age_at_index", "sex_concept_id", "race_concept_id", "ethnicity_concept_id"].indexOf(id) >= 0;
-    });
+    var demoIds = ["age_at_index", "sex_concept_id", "race_concept_id", "ethnicity_concept_id"];
+    for (var i = 0; i < covariates.length; i++) {
+      if (demoIds.indexOf(covariates[i]) >= 0) return true;
+    }
+    return false;
   }
 
   function ageExpr(db) {
@@ -102,8 +146,11 @@
     return covariates;
   }
 
+  /**
+   * Flatten a mixed array of strings and arrays-of-strings into a flat array.
+   */
   function flatten(items) {
-    const out = [];
+    var out = [];
     items.forEach(function(item) {
       if (Array.isArray(item)) {
         item.forEach(function(inner) { out.push(inner); });
@@ -114,11 +161,17 @@
     return out;
   }
 
+  /**
+   * Build the covariate SQL fragments for the given config.
+   *
+   * @param  {object} config  normalised study configuration
+   * @return {object}         { columns: string[], joins: string[] }
+   */
   function buildSelect(config) {
-    const selected = normalizeCovariates(config.covariates);
-    const encoding = config.covariateEncoding || "count";
-    const cols = [];
-    const joins = [];
+    var selected = normalizeCovariates(config.covariates);
+    var encoding = config.covariateEncoding || "count";
+    var cols = [];
+    var joins = [];
 
     if (personJoinRequired(selected)) {
       joins.push("LEFT JOIN " + config.schema + ".person p ON p.person_id = s.person_id");

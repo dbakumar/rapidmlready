@@ -182,8 +182,7 @@
         "analysis_script": { "type": "boolean", "description": "Generate analysis script (run.py / run.R)", "default": true },
         "manifest": { "type": "boolean", "description": "Generate JSON manifest", "default": true },
         "summary": { "type": "boolean", "description": "Generate plain-language README.md", "default": true },
-        "attrition_report": { "type": "boolean", "description": "Generate attrition SQL and counts", "default": true },
-        "data_quality_report": { "type": "boolean", "description": "Generate data quality checks", "default": false }
+        "detailed_manifest": { "type": "boolean", "description": "Generate detailed manifest with evidence logic", "default": true }
       }
     }
   },

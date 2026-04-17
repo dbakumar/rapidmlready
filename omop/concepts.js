@@ -1,21 +1,33 @@
 /**
  * ============================================================================
- * CONCEPT REFERENCE REGISTRY
+ * CONCEPTS.JS  -  OMOP Concept Reference Registry
  * ============================================================================
- * 
- * This file provides a centralized registry of common OMOP concept IDs.
- * Users can reference these IDs when filling out cohort and outcome rules.
- * 
- * Concept categories:
- * - Conditions: diseases and diagnoses (e.g., diabetes, nephropathy)
- * - Measurements: lab tests and vital signs (e.g., eGFR, blood pressure)
- * - Drugs: medication concepts (e.g., metformin, lisinopril)
- * - Procedures: clinical procedures (e.g., dialysis, transplant)
- * 
- * For developers:
- * - To ADD concepts: call RapidML.ConceptReference.addConcept() or addConcepts()
- * - Each concept needs: id (numeric), name (string)
- * - The UI auto-generates from renderAll() - no manual HTML needed
+ *
+ * PURPOSE:
+ *   Provides a centralised registry of common OMOP concept IDs that users
+ *   can reference when filling out evidence rows.  The right sidebar of
+ *   the wizard renders this data with click-to-copy functionality.
+ *
+ * CONCEPT CATEGORIES:
+ *   conditions   - diseases and diagnoses (e.g. diabetes, nephropathy)
+ *   measurements - lab tests and vital signs (e.g. eGFR, blood pressure)
+ *   drugs        - medication concepts (e.g. metformin, lisinopril)
+ *   procedures   - clinical procedures (e.g. dialysis, transplant)
+ *
+ * HOW TO EXTEND:
+ *   RapidML.ConceptReference.addConcept("conditions", "12345", "My Disease");
+ *   RapidML.ConceptReference.addConcepts("drugs", [{id:"99", name:"DrugX"}]);
+ *
+ * DEPENDS ON:  nothing (standalone data + rendering)
+ * USED BY:     core/wizard-ui.js (setupConceptRefPanel)
+ *
+ * PUBLIC API (on RapidML.ConceptReference):
+ *   getCategories()              -> array of {key, label, icon}
+ *   getByCategory(category)      -> array of {id, name}
+ *   renderCategory(category)     -> HTML string for one category
+ *   renderAll()                  -> HTML string for all categories
+ *   addConcept(cat, id, name)    -> add one concept
+ *   addConcepts(cat, array)      -> add many concepts
  * ============================================================================
  */
 
@@ -109,14 +121,18 @@ RapidML.ConceptReference = {
    * @returns {string} - HTML string for one category section
    */
   renderCategory: function(category) {
-    const concepts = this.getByCategory(category);
-    const categoryLabel = this.getCategories().find(c => c.key === category);
+    var concepts = this.getByCategory(category);
+    var categories = this.getCategories();
+    var categoryLabel = null;
+    for (var i = 0; i < categories.length; i++) {
+      if (categories[i].key === category) { categoryLabel = categories[i]; break; }
+    }
     
     if (!concepts || concepts.length === 0) {
       return "";
     }
 
-    let html = '<div>\n';
+    var html = '<div>\n';
     html += '  <h4 class="font-semibold text-slate-700 mb-2">' + (categoryLabel ? categoryLabel.label : category) + '</h4>\n';
     html += '  <ul class="text-xs md:text-sm space-y-1 text-slate-700">\n';
     
@@ -136,8 +152,8 @@ RapidML.ConceptReference = {
    * @returns {string} - HTML string for entire reference panel
    */
   renderAll: function() {
-    const categories = this.getCategories();
-    let html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">\n';
+    var categories = this.getCategories();
+    var html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">\n';
     
     categories.forEach(function(cat) {
       html += this.renderCategory(cat.key);

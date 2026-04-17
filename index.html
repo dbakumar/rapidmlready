@@ -63,7 +63,7 @@
       <span class="hidden sm:inline text-slate-400 text-sm">| OMOP Cohort Wizard</span>
     </div>
     <div class="flex items-center gap-4 text-sm">
-      <span id="headerStatus" class="text-slate-400">Step 1 of 6</span>
+      <span id="headerStatus" class="text-slate-400">Step 1 of 5</span>
       <button type="button" id="toggleRightPanel" class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium transition-colors">
         Concept Reference
       </button>
@@ -84,45 +84,37 @@
         <button class="step-tab active w-full text-left" data-target="section-study" data-step="1">
           <span class="step-num">1</span>
           <div class="min-w-0">
-            <div class="text-sm truncate">Study Info</div>
-            <div class="text-[10px] text-slate-400 truncate">Database &amp; period</div>
+            <div class="text-sm truncate">Study Setup</div>
+            <div class="text-[10px] text-slate-400 truncate">Database &amp; methodology</div>
           </div>
         </button>
 
-        <button class="step-tab w-full text-left" data-target="section-cohort" data-step="2">
+        <button class="step-tab w-full text-left" data-target="section-definition" data-step="2">
           <span class="step-num">2</span>
           <div class="min-w-0">
-            <div class="text-sm truncate">Cohort Entry</div>
-            <div class="text-[10px] text-slate-400 truncate">Patient criteria</div>
+            <div class="text-sm truncate">Study Definition</div>
+            <div class="text-[10px] text-slate-400 truncate">Entry, outcome, exclusions</div>
           </div>
         </button>
 
-        <button class="step-tab w-full text-left" data-target="section-outcome" data-step="3">
+        <button class="step-tab w-full text-left" data-target="section-censoring" data-step="3">
           <span class="step-num">3</span>
           <div class="min-w-0">
-            <div class="text-sm truncate">Outcome</div>
-            <div class="text-[10px] text-slate-400 truncate">Event definition</div>
+            <div class="text-sm truncate">Time Windows</div>
+            <div class="text-[10px] text-slate-400 truncate">Baseline &amp; censoring</div>
           </div>
         </button>
 
-        <button class="step-tab w-full text-left" data-target="section-censoring" data-step="4">
+        <button class="step-tab w-full text-left" data-target="section-covariates" data-step="4">
           <span class="step-num">4</span>
-          <div class="min-w-0">
-            <div class="text-sm truncate">Censoring</div>
-            <div class="text-[10px] text-slate-400 truncate">Time windows</div>
-          </div>
-        </button>
-
-        <button class="step-tab w-full text-left" data-target="section-covariates" data-step="5">
-          <span class="step-num">5</span>
           <div class="min-w-0">
             <div class="text-sm truncate">Covariates</div>
             <div class="text-[10px] text-slate-400 truncate">Features &amp; encoding</div>
           </div>
         </button>
 
-        <button class="step-tab w-full text-left" data-target="section-review" data-step="6">
-          <span class="step-num">6</span>
+        <button class="step-tab w-full text-left" data-target="section-review" data-step="5">
+          <span class="step-num">5</span>
           <div class="min-w-0">
             <div class="text-sm truncate">Review</div>
             <div class="text-[10px] text-slate-400 truncate">Generate package</div>
@@ -144,12 +136,12 @@
       <!-- ── SECTION 1: STUDY INFORMATION ────────────────────────── -->
       <section id="section-study" class="wizard-section active">
         <div class="mb-6">
-          <h2 class="text-xl font-bold text-slate-900">Study Information</h2>
-          <p class="text-slate-500 text-sm mt-1">Configure your OMOP database connection and study time period.</p>
+          <h2 class="text-xl font-bold text-slate-900">Study Setup</h2>
+          <p class="text-slate-500 text-sm mt-1">Configure your database, study period, methodology, and data model.</p>
         </div>
 
         <div class="bg-blue-50 border-l-4 border-blue-400 p-3 rounded mb-6 text-sm text-slate-700">
-          <strong>Workflow:</strong> Set your study years, define who enters the cohort (step 2), what you measure as outcome (step 3), and when to measure it (step 4).
+          <strong>Workflow:</strong> Configure database and methodology here, then define your study criteria (step 2), time windows (step 3), covariates (step 4), and generate (step 5).
         </div>
 
         <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 space-y-5">
@@ -162,7 +154,7 @@
               </select>
             </div>
             <div>
-              <label class="block text-sm font-semibold text-slate-700 mb-1.5">OMOP Schema Name</label>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Schema Name</label>
               <input id="schema" value="" placeholder="e.g. cdm_synthea10" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm"/>
             </div>
           </div>
@@ -176,216 +168,111 @@
               <input id="endYear" value="2024" type="number" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm"/>
             </div>
           </div>
-        </div>
 
-        <!-- Step navigation -->
-        <div class="flex justify-end mt-6">
-          <button type="button" class="nav-next-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-md text-sm font-medium transition-colors" data-next="section-cohort">
-            Next: Cohort Entry &rarr;
-          </button>
-        </div>
-      </section>
-
-      <!-- ── SECTION 2: COHORT ENTRY ─────────────────────────────── -->
-      <section id="section-cohort" class="wizard-section">
-        <div class="mb-6">
-          <h2 class="text-xl font-bold text-slate-900">Cohort Entry</h2>
-          <p class="text-slate-500 text-sm mt-1">Choose a predefined rule. Only fields required for your selected rule are shown.</p>
-        </div>
-
-        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 space-y-5">
-          <!-- Methodology + Template -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <!-- Data model + Methodology + Template -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-5 pt-3 border-t border-slate-200">
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Data Model</label>
+              <select id="dataModel" class="form-input border border-slate-300 p-2.5 w-full rounded-md bg-white text-sm">
+                <option value="omop">OMOP CDM</option>
+              </select>
+              <p class="text-xs text-slate-400 mt-1">Future: i2b2, FHIR, PCORnet</p>
+            </div>
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-1.5">Study Methodology</label>
               <select id="methodology" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
                 <option value="">Loading...</option>
               </select>
-              <p class="text-xs text-slate-400 mt-1">How you structure the study (e.g., annual prediction windows)</p>
+              <p class="text-xs text-slate-400 mt-1">How to structure patient rows</p>
             </div>
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-1.5">Analysis Template</label>
               <select id="analysisTemplate" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
                 <option value="">Loading...</option>
               </select>
-              <p class="text-xs text-slate-400 mt-1">Analysis code generation (e.g., logistic regression)</p>
-            </div>
-          </div>
-
-          <!-- Rule selector -->
-          <div>
-            <label class="block text-sm font-semibold text-slate-700 mb-1.5">Cohort Entry Rule Type</label>
-            <select id="cohortEntryMode" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
-              <option value="first_event">1 condition record (earliest diagnosis)</option>
-              <option value="visit_count">2 condition records on 2 distinct visits (confirmed diagnosis)</option>
-              <option value="condition_lab_diff_visits">1 condition + 1 lab on different visits (dual evidence)</option>
-              <option value="condition_or_lab">1 condition OR 1 lab record (either marker)</option>
-            </select>
-          </div>
-
-          <!-- Visit filter -->
-          <div class="bg-slate-50 border border-slate-200 rounded-md p-4">
-            <label class="block text-sm font-semibold text-slate-700 mb-1.5">Visit Filter for Entry Events</label>
-            <select id="visitFilterMode" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm mb-2">
-              <option value="all">All visit types (no restriction)</option>
-              <option value="inpatient">Inpatient visits only</option>
-              <option value="outpatient">Outpatient visits only</option>
-              <option value="emergency">Emergency room visits only</option>
-              <option value="custom">Custom visit concept IDs</option>
-            </select>
-            <div id="visitFilterCustomFields" style="display: none;">
-              <label class="block text-xs font-semibold text-slate-600 mb-1">Custom Visit Concept IDs (comma-separated)</label>
-              <input type="text" id="visitConceptIds" placeholder="e.g. 9201,9202" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm" />
-              <p class="text-xs text-slate-400 mt-1">Common: 9201 (Inpatient), 9202 (Outpatient), 9203 (ER)</p>
-            </div>
-            <p class="text-xs text-slate-400 mt-1">All rules join through visit_occurrence for consistent filtering.</p>
-          </div>
-
-          <!-- Example buttons -->
-          <div class="flex flex-wrap gap-2">
-            <button type="button" id="applyCohortExampleConditionBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: Diabetes only</button>
-            <button type="button" id="applyCohortExampleLabBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: Diabetes + eGFR</button>
-          </div>
-
-          <!-- Rule help -->
-          <div id="cohortRuleHelp" class="text-sm text-slate-600 bg-blue-50 border-l-4 border-blue-300 rounded p-3"></div>
-
-          <!-- Condition fields -->
-          <div class="bg-slate-50 border border-slate-200 rounded-md p-4 space-y-4">
-            <div id="cohortConditionFields">
-              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Condition Concept ID <span class="text-red-500">*</span></label>
-              <input type="text" id="cohortConditionConceptId" placeholder="e.g. 201826" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm" />
-              <p class="text-xs text-slate-400 mt-1">Required for all cohort rules. See concept reference panel.</p>
-            </div>
-
-            <div id="labRuleFields" style="display: none;" class="pt-4 border-t border-slate-200">
-              <p class="text-sm font-semibold text-slate-700 mb-3">Lab Measurements</p>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-slate-600 mb-1">Lab Measurement Concept ID</label>
-                  <input type="text" id="cohortMeasurementConceptId" placeholder="e.g. 3020460" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-600 mb-1">Operator</label>
-                  <select id="cohortMeasurementOp" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
-                    <option value=">">&gt; Greater than</option>
-                    <option value="<">&lt; Less than</option>
-                    <option value=">=">&gt;= Greater/equal</option>
-                    <option value="<=">&lt;= Less/equal</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-600 mb-1">Threshold Value</label>
-                  <input type="number" id="cohortMeasurementValue" placeholder="e.g. 60" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm" />
-                </div>
-              </div>
+              <p class="text-xs text-slate-400 mt-1">Generated script type</p>
             </div>
           </div>
         </div>
 
         <!-- Step navigation -->
+        <div class="flex justify-end mt-6">
+          <button type="button" class="nav-next-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-md text-sm font-medium transition-colors" data-next="section-definition">
+            Next: Study Definition &rarr;
+          </button>
+        </div>
+      </section>
+
+      <!-- ── SECTION 2: STUDY DEFINITION (evidence blocks) ────────── -->
+      <section id="section-definition" class="wizard-section">
+        <div class="mb-6">
+          <h2 class="text-xl font-bold text-slate-900">Study Definition</h2>
+          <p class="text-slate-500 text-sm mt-1">Define who enters the cohort, what outcome to predict, and optional exclusions or confounders. Each row is one piece of clinical evidence.</p>
+        </div>
+
+        <!-- Entry Block -->
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 mb-4">
+          <h3 class="text-sm font-bold text-slate-800 mb-1">Cohort Entry</h3>
+          <p class="text-xs text-slate-400 mb-3">Who enters the study? Add one or more evidence rows (diagnosis, lab, drug, procedure).</p>
+          <div id="entryBlock"></div>
+        </div>
+
+        <!-- Outcome Block -->
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 mb-4">
+          <h3 class="text-sm font-bold text-slate-800 mb-1">Outcome</h3>
+          <p class="text-xs text-slate-400 mb-3">What event to predict in the follow-up window?</p>
+          <div id="outcomeBlock"></div>
+        </div>
+
+        <!-- Exclusions (optional) -->
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 mb-4">
+          <h3 class="text-sm font-bold text-slate-800 mb-1">Exclusions <span class="text-xs font-normal text-slate-400">(optional)</span></h3>
+          <p class="text-xs text-slate-400 mb-3">Patients matching any exclusion row are removed from the study.</p>
+          <div id="exclusionsBlock"></div>
+        </div>
+
+        <!-- Confounders (optional) -->
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 mb-4">
+          <h3 class="text-sm font-bold text-slate-800 mb-1">Confounders <span class="text-xs font-normal text-slate-400">(optional)</span></h3>
+          <p class="text-xs text-slate-400 mb-3">Risk factors tracked as binary columns in the output dataset.</p>
+          <div id="confoundersBlock"></div>
+        </div>
+
+        <!-- Example buttons -->
+        <div class="flex flex-wrap gap-2 mb-4">
+          <button type="button" id="applyExampleDiabetesBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: Diabetes → Nephropathy</button>
+          <button type="button" id="applyExampleDiabetesLabBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: Diabetes + eGFR → eGFR &lt; 30</button>
+        </div>
+
+        <!-- Step navigation -->
         <div class="flex justify-between mt-6">
           <button type="button" class="nav-prev-btn bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-md text-sm font-medium transition-colors" data-prev="section-study">
-            &larr; Study Info
-          </button>
-          <button type="button" class="nav-next-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-md text-sm font-medium transition-colors" data-next="section-outcome">
-            Next: Outcome &rarr;
-          </button>
-        </div>
-      </section>
-
-      <!-- ── SECTION 3: OUTCOME RULES ────────────────────────────── -->
-      <section id="section-outcome" class="wizard-section">
-        <div class="mb-6">
-          <h2 class="text-xl font-bold text-slate-900">Outcome Rules</h2>
-          <p class="text-slate-500 text-sm mt-1">Define what counts as an outcome event in the follow-up window.</p>
-        </div>
-
-        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 space-y-5">
-          <div>
-            <label class="block text-sm font-semibold text-slate-700 mb-1.5">Outcome Rule Type</label>
-            <select id="outcomeRuleMode" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
-              <option value="condition_occurrence">1 condition record in outcome window</option>
-              <option value="two_condition_records">2 condition records in outcome window</option>
-              <option value="lab_threshold">1 lab record above/below threshold in outcome window</option>
-              <option value="condition_or_lab">1 condition OR 1 lab record in outcome window</option>
-            </select>
-          </div>
-
-          <div class="flex flex-wrap gap-2">
-            <button type="button" id="applyOutcomeExampleConditionBtn" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: Nephropathy</button>
-            <button type="button" id="applyOutcomeExampleLabBtn" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: eGFR &lt; 30</button>
-          </div>
-
-          <div id="outcomeRuleHelp" class="text-sm text-slate-600 bg-blue-50 border-l-4 border-blue-300 rounded p-3"></div>
-
-          <div class="bg-slate-50 border border-slate-200 rounded-md p-4 space-y-4">
-            <div id="outcomeConditionFields">
-              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Outcome Condition Concept ID</label>
-              <input type="text" id="outcomeConceptId" placeholder="e.g. 4129519" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm"/>
-              <p class="text-xs text-slate-400 mt-1">Used for condition-based outcome rules.</p>
-            </div>
-
-            <div id="outcomeLabFields" style="display: none;" class="pt-4 border-t border-slate-200">
-              <p class="text-sm font-semibold text-slate-700 mb-3">Lab Measurements</p>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-slate-600 mb-1">Outcome Lab Measurement Concept ID</label>
-                  <input type="text" id="outcomeMeasurementConceptId" placeholder="e.g. 3020460" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-600 mb-1">Operator</label>
-                  <select id="outcomeMeasurementOp" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
-                    <option value=">">&gt; Greater than</option>
-                    <option value="<">&lt; Less than</option>
-                    <option value=">=">&gt;= Greater/equal</option>
-                    <option value="<=">&lt;= Less/equal</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-600 mb-1">Lab Threshold Value</label>
-                  <input type="number" id="outcomeMeasurementValue" placeholder="e.g. 30" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex justify-between mt-6">
-          <button type="button" class="nav-prev-btn bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-md text-sm font-medium transition-colors" data-prev="section-cohort">
-            &larr; Cohort Entry
+            &larr; Study Setup
           </button>
           <button type="button" class="nav-next-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-md text-sm font-medium transition-colors" data-next="section-censoring">
-            Next: Censoring &rarr;
+            Next: Time Windows &rarr;
           </button>
         </div>
       </section>
 
-      <!-- ── SECTION 4: CENSORING & TIME WINDOWS ─────────────────── -->
+      <!-- ── SECTION 3: TIME WINDOWS & CENSORING ──────────────────── -->
       <section id="section-censoring" class="wizard-section">
         <div class="mb-6">
-          <h2 class="text-xl font-bold text-slate-900">Censoring &amp; Time Windows</h2>
+          <h2 class="text-xl font-bold text-slate-900">Time Windows &amp; Censoring</h2>
           <p class="text-slate-500 text-sm mt-1">Define baseline and outcome window lengths.</p>
         </div>
 
         <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 space-y-5">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
-              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Baseline Period (years)</label>
-              <select id="baselineYears" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
-                <option>1</option>
-                <option>3</option>
-                <option>5</option>
-              </select>
-              <p class="text-xs text-slate-400 mt-1">How far back to look for patient history</p>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Baseline Period (days)</label>
+              <input id="baselineDays" type="number" min="1" value="365" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm"/>
+              <p class="text-xs text-slate-400 mt-1">How far back to look for patient history (e.g. 90 = 3 months, 365 = 1 year)</p>
             </div>
             <div>
-              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Outcome Window (years)</label>
-              <select id="outcomeYears" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm">
-                <option>1</option>
-                <option>2</option>
-              </select>
-              <p class="text-xs text-slate-400 mt-1">How far forward to look for outcome events</p>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Outcome Window (days)</label>
+              <input id="outcomeDays" type="number" min="1" value="365" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm"/>
+              <p class="text-xs text-slate-400 mt-1">How far forward to look for outcome events (e.g. 180 = 6 months, 365 = 1 year)</p>
             </div>
           </div>
 
@@ -401,15 +288,15 @@
               <input type="checkbox" id="bestPracticeMode" class="mt-0.5 w-4 h-4 border-slate-300 rounded"/>
               <div>
                 <span class="text-sm font-semibold text-slate-700">Best-Practice Mode</span>
-                <p class="text-xs text-slate-400 mt-0.5">Generate manifest.json, attrition report, and data-quality checks</p>
+                <p class="text-xs text-slate-400 mt-0.5">Generate detailed manifest.json with full evidence logic documentation</p>
               </div>
             </label>
           </div>
         </div>
 
         <div class="flex justify-between mt-6">
-          <button type="button" class="nav-prev-btn bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-md text-sm font-medium transition-colors" data-prev="section-outcome">
-            &larr; Outcome
+          <button type="button" class="nav-prev-btn bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-md text-sm font-medium transition-colors" data-prev="section-definition">
+            &larr; Study Definition
           </button>
           <button type="button" class="nav-next-btn bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-md text-sm font-medium transition-colors" data-next="section-covariates">
             Next: Covariates &rarr;
@@ -417,7 +304,7 @@
         </div>
       </section>
 
-      <!-- ── SECTION 5: COVARIATES ───────────────────────────────── -->
+      <!-- ── SECTION 4: COVARIATES ───────────────────────────────── -->
       <section id="section-covariates" class="wizard-section">
         <div class="mb-6">
           <h2 class="text-xl font-bold text-slate-900">Covariates (Features)</h2>
@@ -561,7 +448,7 @@
         </div>
       </section>
 
-      <!-- ── SECTION 6: REVIEW & GENERATE ────────────────────────── -->
+      <!-- ── SECTION 5: REVIEW & GENERATE ────────────────────────── -->
       <section id="section-review" class="wizard-section">
         <div class="mb-6">
           <h2 class="text-xl font-bold text-slate-900">Review &amp; Generate</h2>
@@ -609,33 +496,31 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
     <!-- Core engine (generic, data-model-independent) -->
-    <script src="core/generator.js?v=10"></script>
-    <script src="core/dialects.js"></script>
+    <script src="core/generator.js?v=18"></script>
+    <script src="core/dialects.js?v=18"></script>
+    <script src="core/evidence-ui.js?v=18"></script>
 
     <!-- OMOP data model (concepts, covariates, censoring, compiler) -->
-    <script src="omop/concepts.js"></script>
-    <script src="omop/covariates.js"></script>
-    <script src="omop/censoring.js"></script>
-    <script src="omop/artifacts.js"></script>
-
-    <!-- Rules (definitions + SQL — OMOP-specific) -->
-    <script src="rules/cohort-rules.js"></script>
-    <script src="rules/outcome-rules.js"></script>
-    <script src="rules/outcome-sql.js"></script>
-    <script src="rules/cohort-sql.js"></script>
+    <script src="omop/concepts.js?v=18"></script>
+    <script src="omop/covariates.js?v=18"></script>
+    <script src="omop/censoring.js?v=18"></script>
+    <script src="omop/artifacts.js?v=18"></script>
 
     <!-- OMOP compiler (after all OMOP modules loaded) -->
-    <script src="omop/compiler.js"></script>
+    <script src="omop/compiler.js?v=18"></script>
+
+    <!-- OMOP evidence adapter (after compiler + adapter-registry) -->
+    <script src="omop/evidence-sql.js?v=18"></script>
 
     <!-- Methodologies -->
-    <script src="methodologies/longitudinal-prediction.js"></script>
-    <script src="methodologies/single-window.js"></script>
+    <script src="methodologies/longitudinal-prediction.js?v=18"></script>
+    <script src="methodologies/single-window.js?v=18"></script>
 
     <!-- Analysis templates -->
-    <script src="templates/logistic-regression.js"></script>
-    <script src="templates/decision-tree.js"></script>
+    <script src="templates/logistic-regression.js?v=18"></script>
+    <script src="templates/decision-tree.js?v=18"></script>
 
-    <!-- Wizard UI controller (extracted for easier debugging) -->
-    <script src="core/wizard-ui.js"></script>
+    <!-- Wizard UI controller (must be last - depends on everything above) -->
+    <script src="core/wizard-ui.js?v=18"></script>
 </body>
 </html>

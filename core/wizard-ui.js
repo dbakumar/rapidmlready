@@ -1,34 +1,44 @@
 /**
- * wizard-ui.js — Wizard UI Controller (3-panel EHR layout)
+ * ============================================================================
+ * WIZARD-UI.JS  -  Wizard UI Controller (3-Panel EHR Layout)
+ * ============================================================================
  *
- * This file contains ALL the browser-side UI logic for the Rapid ML-Ready
- * Wizard (index.html). It drives a 3-panel layout:
- *   LEFT   — vertical step tabs (sidebar navigation)
- *   CENTER — one wizard section visible at a time
- *   RIGHT  — OMOP concept ID reference (always-visible sidebar)
+ * PURPOSE:
+ *   Contains ALL browser-side UI logic for the Rapid ML-Ready Wizard
+ *   (index.html).  Drives a 3-panel layout:
+ *     LEFT   - vertical step tabs (sidebar navigation, 5 steps)
+ *     CENTER - one wizard section visible at a time (form panels)
+ *     RIGHT  - OMOP concept ID reference (always-visible, click-to-copy)
  *
- * It depends on the RapidML global namespace being set up by:
- *   core/generator.js   → RapidML.Methodologies, RapidML.AnalysisTemplates, getFormConfig(), generate()
- *   rules/cohort-rules.js  → RapidML.CohortRules
- *   rules/outcome-rules.js → RapidML.OutcomeRules
- *   omop/concepts.js       → RapidML.ConceptReference
- *   omop/compiler.js       → RapidML.Compiler.compileStudy
+ * SECTIONS IN THIS FILE:
+ *   1.  TAB NAVIGATION        - switch active section + sidebar highlight
+ *   2.  COVARIATE PRESETS      - preset definitions and apply logic
+ *   3.  VISIT FILTER           - show/hide custom visit concept fields
+ *   4.  EVIDENCE BLOCK SETUP   - initialise evidence row forms
+ *   5.  EXAMPLE BUTTONS        - pre-fill with diabetes study examples
+ *   6.  CONCEPT REFERENCE      - populate right sidebar + click-to-copy
+ *   7.  RIGHT PANEL TOGGLE     - show/hide the concept sidebar
+ *   8.  DROPDOWN POPULATION    - fill methodology / template dropdowns
+ *   9.  SELF-CHECK PANEL       - live validation summary (step 5)
+ *  10.  INITIALISATION         - boot sequence that runs on page load
  *
- * Load this file AFTER all the above scripts in index.html.
+ * DATA FLOW:
+ *   Page loads -> setTimeout(10ms) -> init functions run in sequence
+ *   User navigates steps -> goToSection() shows/hides panels
+ *   User changes inputs -> updateSelfCheck() refreshes validation
+ *   User clicks Generate -> generate() in generator.js is called
  *
- * Sections in this file (search by heading):
- *   1. TAB NAVIGATION          — switch active section + sidebar highlight
- *   2. COVARIATE PRESETS       — preset definitions and apply logic
- *   3. RULE HELP PANELS        — update help text when rule selection changes
- *   4. VISIT FILTER            — show/hide custom visit concept fields
- *   5. EXAMPLE BUTTONS         — pre-fill form with example concept IDs
- *   6. CONCEPT REFERENCE PANEL — populate right sidebar + click-to-copy
- *   7. RIGHT PANEL TOGGLE      — show/hide the concept reference sidebar
- *   8. DROPDOWN POPULATION     — fill methodology/template dropdowns from registries
- *   9. SELF-CHECK PANEL        — live validation summary (step 6)
- *  10. COHORT & OUTCOME RULE ACTIONS — wire rule dropdowns to field visibility + help
- *  11. STEP NAVIGATION BUTTONS — next/prev buttons inside each section
- *  12. INITIALIZATION          — boot sequence that runs on page load
+ * DEPENDS ON (must be loaded before this file):
+ *   core/generator.js      -> RapidML.Methodologies, AnalysisTemplates,
+ *                              Adapters, getFormConfig(), generate()
+ *   core/evidence-ui.js    -> RapidML.EvidenceUI
+ *   omop/concepts.js       -> RapidML.ConceptReference
+ *
+ * GLOBAL FUNCTIONS EXPOSED:
+ *   goToSection(id)        - switch wizard step
+ *   updateSelfCheck()      - refresh validation panel
+ *   applyCovariatePreset() - apply covariate preset from dropdown
+ * ============================================================================
  */
 
 // =====================================================================
@@ -44,8 +54,7 @@ var currentStep = 1;
 /** List of section IDs in step order */
 var SECTION_ORDER = [
   "section-study",
-  "section-cohort",
-  "section-outcome",
+  "section-definition",
   "section-censoring",
   "section-covariates",
   "section-review"
@@ -86,7 +95,7 @@ function goToSection(sectionId) {
   // Update header status text
   var headerStatus = document.getElementById("headerStatus");
   if (headerStatus) {
-    headerStatus.textContent = "Step " + currentStep + " of 6";
+    headerStatus.textContent = "Step " + currentStep + " of 5";
   }
 
   // Scroll center panel to top
@@ -219,149 +228,78 @@ function setupCovariatePresetActions() {
 
 
 // =====================================================================
-//  2. RULE HELP PANELS
-//  When the user selects a cohort or outcome rule, update the help
-//  text shown below the dropdown (the blue info box).
-// =====================================================================
-
-/**
- * Delegate to the cohort rule registry to update #cohortRuleHelp.
- */
-function updateCohortRuleHelp(ruleId) {
-  if (window.RapidML && window.RapidML.CohortRules) {
-    window.RapidML.CohortRules.updateHelp(ruleId);
-  }
-}
-
-/**
- * Delegate to the outcome rule registry to update #outcomeRuleHelp.
- */
-function updateOutcomeRuleHelp(ruleId) {
-  if (window.RapidML && window.RapidML.OutcomeRules) {
-    window.RapidML.OutcomeRules.updateHelp(ruleId);
-  }
-}
-
-
-// =====================================================================
 //  3. VISIT FILTER
 //  The visit filter dropdown controls whether custom concept ID
-//  fields are visible. Only "custom" mode reveals the extra input.
+// =====================================================================
+//  4. EVIDENCE BLOCK SETUP
+//  Initialize the dynamic evidence row forms in the Study Definition
+//  section.  Uses RapidML.EvidenceUI to render blocks.
 // =====================================================================
 
-/**
- * Show the custom visit concept ID input only when mode === "custom".
- */
-function updateVisitFilterVisibility() {
-  var modeSelect = document.getElementById("visitFilterMode");
-  var customFields = document.getElementById("visitFilterCustomFields");
-  if (!modeSelect || !customFields) return;
-  customFields.style.display = modeSelect.value === "custom" ? "block" : "none";
-}
+/** Handles returned from renderBlock — used by example buttons */
+var _entryBlockHandle = null;
+var _outcomeBlockHandle = null;
 
 /**
- * Attach change listener and run initial visibility check.
+ * Initialize all four evidence block containers.
+ * Adds one default row to entry and outcome blocks.
  */
-function setupVisitFilterActions() {
-  var modeSelect = document.getElementById("visitFilterMode");
-  if (!modeSelect) return;
+function setupEvidenceBlocks() {
+  if (!RapidML.EvidenceUI) return;
 
-  function refreshVisitFilterState() {
-    updateVisitFilterVisibility();
-    updateSelfCheck();
-  }
+  _entryBlockHandle = RapidML.EvidenceUI.renderBlock("entryBlock", {
+    label: "Entry",
+    showMatch: true,
+    showLabel: false
+  });
 
-  modeSelect.addEventListener("change", refreshVisitFilterState);
-  refreshVisitFilterState();
+  _outcomeBlockHandle = RapidML.EvidenceUI.renderBlock("outcomeBlock", {
+    label: "Outcome",
+    showMatch: true,
+    showLabel: false
+  });
+
+  RapidML.EvidenceUI.renderBlock("exclusionsBlock", {
+    label: "Exclusion",
+    showMatch: false,
+    showLabel: true
+  });
+
+  RapidML.EvidenceUI.renderBlock("confoundersBlock", {
+    label: "Confounder",
+    showMatch: false,
+    showLabel: true
+  });
+
+  // Add one default row each for entry and outcome
+  if (_entryBlockHandle) _entryBlockHandle.addRow({ type: "diagnosis" });
+  if (_outcomeBlockHandle) _outcomeBlockHandle.addRow({ type: "diagnosis" });
 }
 
 
 // =====================================================================
-//  4. EXAMPLE BUTTONS
-//  Pre-fill the form with realistic example concept IDs so new users
+//  5. EXAMPLE BUTTONS
+//  Pre-fill evidence blocks with realistic examples so new users
 //  can see a working configuration immediately.
 // =====================================================================
 
 /**
- * Fill cohort entry fields with example values.
- * @param {string} type - "condition" (diabetes only) or "condition_lab" (diabetes + eGFR)
+ * Attach click handlers to example buttons.
  */
-function applyCohortExample(type) {
-  var modeSelect = document.getElementById("cohortEntryMode");
-  var conditionInput = document.getElementById("cohortConditionConceptId");
-  var measurementInput = document.getElementById("cohortMeasurementConceptId");
-  var opInput = document.getElementById("cohortMeasurementOp");
-  var valueInput = document.getElementById("cohortMeasurementValue");
+function setupExampleActions() {
+  var diabetesBtn = document.getElementById("applyExampleDiabetesBtn");
+  var diabetesLabBtn = document.getElementById("applyExampleDiabetesLabBtn");
 
-  if (type === "condition") {
-    // Example: Type 2 Diabetes (OMOP concept 201826), condition-only entry
-    modeSelect.value = "first_event";
-    conditionInput.value = "201826";
-    measurementInput.value = "";
-    opInput.value = "<";
-    valueInput.value = "";
+  if (diabetesBtn) {
+    diabetesBtn.addEventListener("click", function () {
+      RapidML.EvidenceUI.applyDiabetesExample(_entryBlockHandle, _outcomeBlockHandle);
+    });
   }
-
-  if (type === "condition_lab") {
-    // Example: Type 2 Diabetes + eGFR < 60 on different visits
-    modeSelect.value = "condition_lab_diff_visits";
-    conditionInput.value = "201826";
-    measurementInput.value = "3020460";
-    opInput.value = "<";
-    valueInput.value = "60";
+  if (diabetesLabBtn) {
+    diabetesLabBtn.addEventListener("click", function () {
+      RapidML.EvidenceUI.applyDiabetesLabExample(_entryBlockHandle, _outcomeBlockHandle);
+    });
   }
-
-  // Trigger change so rule help and field visibility refresh
-  modeSelect.dispatchEvent(new Event("change"));
-  updateSelfCheck();
-}
-
-/**
- * Fill outcome fields with example values.
- * @param {string} type - "condition" (nephropathy) or "lab" (eGFR < 30)
- */
-function applyOutcomeExample(type) {
-  var modeSelect = document.getElementById("outcomeRuleMode");
-  var conceptInput = document.getElementById("outcomeConceptId");
-  var measurementInput = document.getElementById("outcomeMeasurementConceptId");
-  var opInput = document.getElementById("outcomeMeasurementOp");
-  var valueInput = document.getElementById("outcomeMeasurementValue");
-
-  if (type === "condition") {
-    // Example: Diabetic nephropathy (OMOP concept 443767)
-    modeSelect.value = "condition_occurrence";
-    conceptInput.value = "443767";
-    measurementInput.value = "";
-    opInput.value = "<";
-    valueInput.value = "";
-  }
-
-  if (type === "lab") {
-    // Example: eGFR < 30 (severe kidney disease threshold)
-    modeSelect.value = "lab_threshold";
-    conceptInput.value = "";
-    measurementInput.value = "3020460";
-    opInput.value = "<";
-    valueInput.value = "30";
-  }
-
-  modeSelect.dispatchEvent(new Event("change"));
-  updateSelfCheck();
-}
-
-/**
- * Attach click handlers to all four example buttons.
- */
-function setupRuleExampleActions() {
-  var cohortConditionBtn = document.getElementById("applyCohortExampleConditionBtn");
-  var cohortLabBtn = document.getElementById("applyCohortExampleLabBtn");
-  var outcomeConditionBtn = document.getElementById("applyOutcomeExampleConditionBtn");
-  var outcomeLabBtn = document.getElementById("applyOutcomeExampleLabBtn");
-
-  if (cohortConditionBtn) cohortConditionBtn.addEventListener("click", function () { applyCohortExample("condition"); });
-  if (cohortLabBtn) cohortLabBtn.addEventListener("click", function () { applyCohortExample("condition_lab"); });
-  if (outcomeConditionBtn) outcomeConditionBtn.addEventListener("click", function () { applyOutcomeExample("condition"); });
-  if (outcomeLabBtn) outcomeLabBtn.addEventListener("click", function () { applyOutcomeExample("lab"); });
 }
 
 
@@ -465,7 +403,7 @@ function populateDropdowns() {
 
 // =====================================================================
 //  9. SELF-CHECK PANEL
-//  The review section (step 6) shows a live summary of form state.
+//  The review section (step 5) shows a live summary of form state.
 //  Red/green indicators tell the user what's filled vs missing.
 //  This function re-renders on every input/change event.
 // =====================================================================
@@ -478,10 +416,8 @@ function yesNo(value) {
 }
 
 /**
- * Re-read all form fields, validate against rule requirements,
+ * Re-read all form fields, validate against evidence block state,
  * and render a summary into #selfCheckPanel.
- *
- * Called automatically on every input/change event via attachAutoSelfCheck().
  */
 function updateSelfCheck() {
   var panel = document.getElementById("selfCheckPanel");
@@ -490,74 +426,38 @@ function updateSelfCheck() {
   var cfg = getFormConfig();
 
   // --- Plugin readiness ---
-  var compilerReady = !!(RapidML.Compiler && RapidML.Compiler.compileStudy);
+  var compilerReady = !!(RapidML.Compiler && RapidML.Compiler.prepareContext);
   var methods = RapidML.Methodologies.list().length;
   var templates = RapidML.AnalysisTemplates.list().length;
 
-  // --- Human-readable rule labels ---
-  var cohortLabel = cfg.cohortEntryMode;
-  var outcomeLabel = cfg.outcomeRule.mode;
-  if (RapidML.CohortRules) {
-    var cohortRule = RapidML.CohortRules.getRule(cfg.cohortEntryMode);
-    cohortLabel = cohortRule.label;
-  }
-  if (RapidML.OutcomeRules) {
-    var outcomeRule = RapidML.OutcomeRules.getRule(cfg.outcomeRule.mode);
-    outcomeLabel = outcomeRule.label;
-  }
+  // --- Evidence block summary ---
+  var study = cfg.study || {};
+  var entryRows = study.entry ? study.entry.rows.length : 0;
+  var outcomeRows = study.outcome ? study.outcome.rows.length : 0;
+  var exclusionCount = study.exclusions ? study.exclusions.length : 0;
+  var confounderCount = study.confounders ? study.confounders.length : 0;
 
-  // --- Rule input validation ---
-  // Build boolean maps of which input types are filled, then ask the
-  // rule registries whether the selected rule's requirements are met.
-  var cohortInputState = {
-    condition:   !!(cfg.cohortEntry && cfg.cohortEntry.conditionConceptId),
-    measurement: !!(cfg.cohortEntry && cfg.cohortEntry.measurementConceptId && cfg.cohortEntry.measurementValue),
-    procedure:   !!(cfg.cohortEntry && cfg.cohortEntry.procedureConceptId),
-    observation: !!(cfg.cohortEntry && cfg.cohortEntry.observationConceptId)
-  };
-  var outcomeInputState = {
-    condition:   !!(cfg.outcomeRule && cfg.outcomeRule.conceptId),
-    measurement: !!(cfg.outcomeRule && cfg.outcomeRule.measurementConceptId && cfg.outcomeRule.measurementValue),
-    procedure:   !!(cfg.outcomeRule && cfg.outcomeRule.procedureConceptId),
-    observation: !!(cfg.outcomeRule && cfg.outcomeRule.observationConceptId)
-  };
-
-  var cohortInputsReady = !RapidML.CohortRules || !RapidML.CohortRules.isInputSatisfied
-    ? true
-    : RapidML.CohortRules.isInputSatisfied(cfg.cohortEntryMode, cohortInputState);
-  var outcomeInputsReady = !RapidML.OutcomeRules || !RapidML.OutcomeRules.isInputSatisfied
-    ? true
-    : RapidML.OutcomeRules.isInputSatisfied(cfg.outcomeRule.mode, outcomeInputState);
-
+  // --- Visit filter display text ---
   // --- Overall readiness ---
   var requiredFieldsReady = !!(
     cfg.schema &&
     cfg.startYear &&
     cfg.endYear &&
-    cfg.outcomeRule &&
-    cfg.cohortEntry &&
-    (!cfg.visitFilter || cfg.visitFilter.mode !== "custom" || (cfg.visitFilter.conceptIds && cfg.visitFilter.conceptIds.length > 0)) &&
-    cohortInputsReady &&
-    outcomeInputsReady
+    entryRows > 0 &&
+    outcomeRows > 0
   );
   var covariateCount = (cfg.covariates || []).length;
   var generationReady = requiredFieldsReady && covariateCount > 0 && compilerReady;
 
-  // --- Visit filter display text ---
-  var visitFilterSummary = cfg.visitFilter && cfg.visitFilter.mode === "custom"
-    ? (cfg.visitFilter.conceptIds && cfg.visitFilter.conceptIds.length ? cfg.visitFilter.conceptIds.join(",") : "custom (missing IDs)")
-    : ((cfg.visitFilter && cfg.visitFilter.mode) || "all");
-
   // --- Render HTML ---
   panel.innerHTML = [
-    "<div><strong>Database:</strong> " + cfg.db + " | <strong>Schema:</strong> " + cfg.schema + "</div>",
-    "<div><strong>Study years:</strong> " + cfg.startYear + "–" + cfg.endYear + "</div>",
-    "<div><strong>Cohort rule:</strong> " + cohortLabel + "</div>",
-    "<div><strong>Outcome rule:</strong> " + outcomeLabel + "</div>",
-    "<div><strong>Visit filter:</strong> " + visitFilterSummary + "</div>",
-    "<div><strong>Baseline:</strong> " + cfg.baselineYears + " years | <strong>Outcome window:</strong> " + cfg.outcomeYears + " years</div>",
+    "<div><strong>Database:</strong> " + cfg.db + " | <strong>Schema:</strong> " + (cfg.schema || "<em>not set</em>") + "</div>",
+    "<div><strong>Data model:</strong> " + (cfg.dataModel || "omop") + " | <strong>Study years:</strong> " + cfg.startYear + "–" + cfg.endYear + "</div>",
+    "<div><strong>Entry rows:</strong> " + entryRows + " " + yesNo(entryRows > 0) + " | <strong>Match:</strong> " + ((study.entry && study.entry.match) || "all") + "</div>",
+    "<div><strong>Outcome rows:</strong> " + outcomeRows + " " + yesNo(outcomeRows > 0) + " | <strong>Match:</strong> " + ((study.outcome && study.outcome.match) || "any") + "</div>",
+    "<div><strong>Exclusions:</strong> " + exclusionCount + " | <strong>Confounders:</strong> " + confounderCount + "</div>",
+    "<div><strong>Baseline:</strong> " + cfg.baselineDays + " days | <strong>Outcome window:</strong> " + cfg.outcomeDays + " days</div>",
     "<div><strong>Compiler:</strong> " + yesNo(compilerReady) + " | <strong>Methodologies:</strong> " + methods + " | <strong>Templates:</strong> " + templates + "</div>",
-    "<div><strong>Required fields:</strong> " + yesNo(requiredFieldsReady) + "</div>",
     "<div><strong>Selected covariates:</strong> " + covariateCount + " | <strong>Encoding:</strong> " + cfg.covariateEncoding + "</div>",
     "<div><strong>Debug mode:</strong> " + (cfg.debug ? "enabled" : "disabled") + " | <strong>Best-practice:</strong> " + (cfg.bestPracticeMode ? "enabled" : "disabled") + "</div>",
     "<div class='pt-2 font-bold text-lg' style='" + (generationReady ? "color: #16a34a;" : "color: #71717a;") + "'>" + (generationReady ? "✓ Ready to generate!" : "⚠ Fill all required fields") + "</div>"
@@ -577,83 +477,21 @@ function attachAutoSelfCheck() {
 
 
 // =====================================================================
-//  10. COHORT & OUTCOME RULE ACTIONS
-//  When the user changes the cohort or outcome rule dropdown:
-//    - Show/hide input groups for the selected rule (via rule registry)
-//    - Update the help text panel
-//    - Refresh the self-check summary
-// =====================================================================
-
-/**
- * Wire the #cohortEntryMode dropdown to field visibility and help.
- */
-function setupCohortRuleActions() {
-  var modeSelect = document.getElementById("cohortEntryMode");
-  if (!modeSelect) return;
-
-  function refreshRuleState() {
-    // Tell the cohort rule registry to show/hide condition vs lab fields
-    if (window.RapidML && window.RapidML.CohortRules) {
-      window.RapidML.CohortRules.updateFieldVisibility(modeSelect.value);
-    }
-    updateCohortRuleHelp(modeSelect.value);
-    updateSelfCheck();
-  }
-
-  modeSelect.addEventListener("change", refreshRuleState);
-  // Run once on load to set initial state
-  refreshRuleState();
-}
-
-/**
- * Wire the #outcomeRuleMode dropdown to field visibility and help.
- */
-function setupOutcomeRuleActions() {
-  var modeSelect = document.getElementById("outcomeRuleMode");
-  if (!modeSelect) return;
-
-  function refreshOutcomeState() {
-    if (window.RapidML && window.RapidML.OutcomeRules) {
-      window.RapidML.OutcomeRules.updateFieldVisibility(modeSelect.value);
-    }
-    updateOutcomeRuleHelp(modeSelect.value);
-    updateSelfCheck();
-  }
-
-  modeSelect.addEventListener("change", refreshOutcomeState);
-  refreshOutcomeState();
-}
-
-
-// =====================================================================
-//  11. INITIALIZATION
+//  10. INITIALIZATION
 //  Boot sequence — runs after a short delay to let all plugin scripts
-//  finish self-registration (methodologies, templates, rules).
-//
-//  Order matters:
-//    1. Wire sidebar tab navigation
-//    2. Wire next/prev step buttons
-//    3. Fill dropdowns from registries
-//    4. Wire preset, rule, visit filter, and example buttons
-//    5. Render concept reference in right sidebar
-//    6. Wire right panel toggle button
-//    7. Apply default covariate preset
-//    8. Start live self-check listeners
-//    9. Run initial self-check render
+//  finish self-registration (methodologies, templates, adapters).
 // =====================================================================
 
 setTimeout(function () {
   setupWizardNavigation();       // 1. Sidebar tabs → switch section
   setupStepNavButtons();         // 2. Next/prev buttons inside sections
   populateDropdowns();           // 3. Methodology + template <select>
-  setupCovariatePresetActions(); // 4a. Preset apply button
-  setupCohortRuleActions();      // 4b. Cohort rule → field visibility
-  setupOutcomeRuleActions();     // 4c. Outcome rule → field visibility
-  setupVisitFilterActions();     // 4d. Visit filter → custom fields
-  setupRuleExampleActions();     // 4e. Example buttons
-  setupConceptRefPanel();        // 5. Concept ID reference (right sidebar)
-  setupRightPanelToggle();       // 6. Header toggle for right panel
-  applyCovariatePreset();        // 7. Apply default preset (clinical_baseline)
-  attachAutoSelfCheck();         // 8. Live validation on all inputs
-  updateSelfCheck();             // 9. Initial self-check render
+  setupCovariatePresetActions(); // 4. Preset apply button
+  setupEvidenceBlocks();         // 5. Evidence block forms (entry, outcome, exclusions, confounders)
+  setupExampleActions();         // 6. Example buttons
+  setupConceptRefPanel();        // 7. Concept ID reference (right sidebar)
+  setupRightPanelToggle();       // 8. Header toggle for right panel
+  applyCovariatePreset();        // 9. Apply default preset (clinical_baseline)
+  attachAutoSelfCheck();         // 10. Live validation on all inputs
+  updateSelfCheck();             // 11. Initial self-check render
 }, 10);
