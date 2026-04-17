@@ -436,6 +436,17 @@
               </label>
             </div>
           </fieldset>
+
+          <!-- Custom Covariates -->
+          <fieldset class="border border-blue-200 rounded-md p-4 bg-blue-50/30">
+            <legend class="text-sm font-semibold text-blue-700 px-1">Custom Covariates (Any Concept ID)</legend>
+            <p class="text-xs text-slate-500 mb-3">Add any OMOP concept as a covariate. Choose a domain, enter the concept ID, pick how to aggregate, and give it a column name.</p>
+            <div id="customCovariateRows" class="space-y-2"></div>
+            <button type="button" id="addCustomCovariateBtn"
+              class="mt-3 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors">
+              + Add Custom Covariate
+            </button>
+          </fieldset>
         </div>
 
         <div class="flex justify-between mt-6">

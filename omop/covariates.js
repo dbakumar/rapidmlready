@@ -21,6 +21,8 @@
  *   Baseline counts:   condition, drug, visit, measurement counts
  *   Baseline labs:     eGFR, creatinine, HbA1c, BP, BMI
  *   Prior history:     prior outcome, hospitalisation, ER visit, procedure
+ *   Custom:            any OMOP concept ID from any domain with flexible
+ *                      aggregation (count, binary, last/first/min/max value)
  *
  * ENCODING MODES:
  *   "count"            - raw counts
@@ -276,6 +278,56 @@
           "AND po.procedure_date < s.baseline_start" +
           ") THEN 1 ELSE 0 END AS prior_procedure_flag");
         return;
+      }
+    });
+
+    // ===== CUSTOM COVARIATES (user-defined concept IDs) =====
+    var customCovs = config.customCovariates || [];
+    var DOMAIN_MAP = {
+      condition:   { table: "condition_occurrence",  conceptCol: "condition_concept_id",   dateCol: "condition_start_date" },
+      drug:        { table: "drug_exposure",         conceptCol: "drug_concept_id",        dateCol: "drug_exposure_start_date" },
+      lab:         { table: "measurement",           conceptCol: "measurement_concept_id", dateCol: "measurement_date" },
+      procedure:   { table: "procedure_occurrence",  conceptCol: "procedure_concept_id",   dateCol: "procedure_date" },
+      observation: { table: "observation",           conceptCol: "observation_concept_id",  dateCol: "observation_date" },
+      visit:       { table: "visit_occurrence",      conceptCol: "visit_concept_id",        dateCol: "visit_start_date" }
+    };
+
+    customCovs.forEach(function(cov) {
+      var info = DOMAIN_MAP[cov.domain];
+      if (!info) return;
+
+      var cid = parseInt(cov.conceptId, 10);
+      if (isNaN(cid)) return;
+
+      var alias = cov.label;
+      var agg = cov.aggregation;
+      var fqTable = config.schema + "." + info.table;
+      var where = "x.person_id = s.person_id AND x." + info.conceptCol + " = " + cid +
+                  " AND x." + info.dateCol + " BETWEEN s.baseline_start AND s.baseline_end";
+
+      if (agg === "count") {
+        cols.push("(SELECT COUNT(*) FROM " + fqTable + " x WHERE " + where + ") AS " + alias);
+      } else if (agg === "binary") {
+        cols.push("CASE WHEN (SELECT COUNT(*) FROM " + fqTable + " x WHERE " + where + ") > 0 " +
+                  "THEN 1 ELSE 0 END AS " + alias);
+      } else if (agg === "last_value") {
+        cols.push(sqlLines([
+          "(SELECT x.value_as_number FROM " + fqTable + " x",
+          "  WHERE " + where,
+          "  ORDER BY x." + info.dateCol + " DESC",
+          "  LIMIT 1) AS " + alias
+        ]));
+      } else if (agg === "first_value") {
+        cols.push(sqlLines([
+          "(SELECT x.value_as_number FROM " + fqTable + " x",
+          "  WHERE " + where,
+          "  ORDER BY x." + info.dateCol + " ASC",
+          "  LIMIT 1) AS " + alias
+        ]));
+      } else if (agg === "min_value") {
+        cols.push("(SELECT MIN(x.value_as_number) FROM " + fqTable + " x WHERE " + where + ") AS " + alias);
+      } else if (agg === "max_value") {
+        cols.push("(SELECT MAX(x.value_as_number) FROM " + fqTable + " x WHERE " + where + ") AS " + alias);
       }
     });
 

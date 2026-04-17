@@ -228,6 +228,126 @@ function setupCovariatePresetActions() {
 
 
 // =====================================================================
+//  2b. CUSTOM COVARIATES
+//  Lets users add any OMOP concept ID as a covariate feature.
+//  Each custom covariate specifies a domain, concept ID, aggregation
+//  mode, and column label.
+// =====================================================================
+
+/** OMOP domain definitions mapping to tables and columns */
+var CUSTOM_COV_DOMAINS = {
+  condition:   { table: "condition_occurrence",  conceptCol: "condition_concept_id",   dateCol: "condition_start_date" },
+  drug:        { table: "drug_exposure",         conceptCol: "drug_concept_id",        dateCol: "drug_exposure_start_date" },
+  lab:         { table: "measurement",           conceptCol: "measurement_concept_id", dateCol: "measurement_date" },
+  procedure:   { table: "procedure_occurrence",  conceptCol: "procedure_concept_id",   dateCol: "procedure_date" },
+  observation: { table: "observation",           conceptCol: "observation_concept_id",  dateCol: "observation_date" },
+  visit:       { table: "visit_occurrence",      conceptCol: "visit_concept_id",        dateCol: "visit_start_date" }
+};
+
+/** Counter for unique row IDs */
+var _customCovRowId = 0;
+
+/**
+ * Add a custom covariate row to the UI.
+ * Each row has: domain dropdown, concept ID, aggregation, label, remove button.
+ */
+function addCustomCovariateRow() {
+  var container = document.getElementById("customCovariateRows");
+  if (!container) return;
+
+  var rowId = _customCovRowId++;
+  var row = document.createElement("div");
+  row.className = "flex flex-wrap gap-2 items-end bg-white rounded border border-slate-200 p-2 custom-cov-row";
+  row.setAttribute("data-row-id", rowId);
+
+  row.innerHTML = [
+    '<div class="flex-1 min-w-[100px]">',
+    '  <label class="block text-xs text-slate-500 mb-0.5">Domain</label>',
+    '  <select class="cc-domain form-input border border-slate-300 p-1.5 w-full rounded text-sm">',
+    '    <option value="condition">Condition</option>',
+    '    <option value="drug">Drug</option>',
+    '    <option value="lab">Lab/Measurement</option>',
+    '    <option value="procedure">Procedure</option>',
+    '    <option value="observation">Observation</option>',
+    '    <option value="visit">Visit</option>',
+    '  </select>',
+    '</div>',
+    '<div class="flex-1 min-w-[100px]">',
+    '  <label class="block text-xs text-slate-500 mb-0.5">Concept ID</label>',
+    '  <input type="text" class="cc-concept form-input border border-slate-300 p-1.5 w-full rounded text-sm" placeholder="e.g. 201826"/>',
+    '</div>',
+    '<div class="flex-1 min-w-[120px]">',
+    '  <label class="block text-xs text-slate-500 mb-0.5">Aggregation</label>',
+    '  <select class="cc-agg form-input border border-slate-300 p-1.5 w-full rounded text-sm">',
+    '    <option value="count">Count in baseline</option>',
+    '    <option value="binary">Binary flag (0/1)</option>',
+    '    <option value="last_value">Last value in baseline</option>',
+    '    <option value="first_value">First value in baseline</option>',
+    '    <option value="min_value">Min value in baseline</option>',
+    '    <option value="max_value">Max value in baseline</option>',
+    '  </select>',
+    '</div>',
+    '<div class="flex-1 min-w-[100px]">',
+    '  <label class="block text-xs text-slate-500 mb-0.5">Column Label</label>',
+    '  <input type="text" class="cc-label form-input border border-slate-300 p-1.5 w-full rounded text-sm" placeholder="e.g. diabetes_count"/>',
+    '</div>',
+    '<div class="flex-shrink-0">',
+    '  <button type="button" class="cc-remove bg-red-100 hover:bg-red-200 text-red-600 px-2 py-1.5 rounded text-sm transition-colors" title="Remove">&times;</button>',
+    '</div>'
+  ].join("\n");
+
+  container.appendChild(row);
+
+  // Wire remove button
+  row.querySelector(".cc-remove").addEventListener("click", function() {
+    container.removeChild(row);
+  });
+}
+
+/**
+ * Collect all custom covariate rows from the UI.
+ * Returns an array of { domain, conceptId, aggregation, label } objects.
+ * Skips rows with empty concept ID.
+ */
+function collectCustomCovariates() {
+  var container = document.getElementById("customCovariateRows");
+  if (!container) return [];
+
+  var rows = container.querySelectorAll(".custom-cov-row");
+  var result = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var conceptId = (row.querySelector(".cc-concept").value || "").replace(/[^0-9]/g, "");
+    if (!conceptId) continue;
+
+    var rawLabel = row.querySelector(".cc-label").value || "";
+    // Sanitize label to safe SQL column name: lowercase, alphanumeric + underscore only
+    var label = rawLabel.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/^_+|_+$/g, "").substring(0, 50);
+    if (!label) {
+      label = row.querySelector(".cc-domain").value + "_" + conceptId;
+    }
+
+    result.push({
+      domain: row.querySelector(".cc-domain").value,
+      conceptId: conceptId,
+      aggregation: row.querySelector(".cc-agg").value,
+      label: label
+    });
+  }
+  return result;
+}
+
+/**
+ * Set up the "Add Custom Covariate" button.
+ */
+function setupCustomCovariates() {
+  var btn = document.getElementById("addCustomCovariateBtn");
+  if (btn) {
+    btn.addEventListener("click", addCustomCovariateRow);
+  }
+}
+
+// =====================================================================
 //  3. VISIT FILTER
 //  The visit filter dropdown controls whether custom concept ID
 // =====================================================================
@@ -447,7 +567,8 @@ function updateSelfCheck() {
     outcomeRows > 0
   );
   var covariateCount = (cfg.covariates || []).length;
-  var generationReady = requiredFieldsReady && covariateCount > 0 && compilerReady;
+  var customCovCount = (cfg.customCovariates || []).length;
+  var generationReady = requiredFieldsReady && (covariateCount > 0 || customCovCount > 0) && compilerReady;
 
   // --- Render HTML ---
   panel.innerHTML = [
@@ -458,7 +579,7 @@ function updateSelfCheck() {
     "<div><strong>Exclusions:</strong> " + exclusionCount + " | <strong>Confounders:</strong> " + confounderCount + "</div>",
     "<div><strong>Baseline:</strong> " + cfg.baselineDays + " days | <strong>Outcome window:</strong> " + cfg.outcomeDays + " days</div>",
     "<div><strong>Compiler:</strong> " + yesNo(compilerReady) + " | <strong>Methodologies:</strong> " + methods + " | <strong>Templates:</strong> " + templates + "</div>",
-    "<div><strong>Selected covariates:</strong> " + covariateCount + " | <strong>Encoding:</strong> " + cfg.covariateEncoding + "</div>",
+    "<div><strong>Selected covariates:</strong> " + covariateCount + " | <strong>Custom covariates:</strong> " + customCovCount + " | <strong>Encoding:</strong> " + cfg.covariateEncoding + "</div>",
     "<div><strong>Debug mode:</strong> " + (cfg.debug ? "enabled" : "disabled") + " | <strong>Best-practice:</strong> " + (cfg.bestPracticeMode ? "enabled" : "disabled") + "</div>",
     "<div class='pt-2 font-bold text-lg' style='" + (generationReady ? "color: #16a34a;" : "color: #71717a;") + "'>" + (generationReady ? "✓ Ready to generate!" : "⚠ Fill all required fields") + "</div>"
   ].join("");
@@ -487,6 +608,7 @@ setTimeout(function () {
   setupStepNavButtons();         // 2. Next/prev buttons inside sections
   populateDropdowns();           // 3. Methodology + template <select>
   setupCovariatePresetActions(); // 4. Preset apply button
+  setupCustomCovariates();       // 4b. Custom covariate add/remove rows
   setupEvidenceBlocks();         // 5. Evidence block forms (entry, outcome, exclusions, confounders)
   setupExampleActions();         // 6. Example buttons
   setupConceptRefPanel();        // 7. Concept ID reference (right sidebar)
