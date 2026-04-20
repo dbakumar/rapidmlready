@@ -1,10 +1,10 @@
 {
-  "title": "i2b2/ONT to OMOP Concept Mapping",
-  "description": "Reference mappings from i2b2 ontology (clinical element categories) and i2b2 fact tables to OMOP CDM domains. This is a stub for Phase 4 implementation. Actual ETL will use i2b2-to-OMOP converters and hierarchical concept mapping.",
+  "title": "i2b2/ONT to OMOP Concept Mapping (Future Adapter Stub)",
+  "description": "Reference mappings from i2b2 ontology and i2b2 fact tables to OMOP CDM domains. No i2b2 adapter is implemented in the current codebase. To implement one, create i2b2/evidence-sql.js following the adapter contract in CONTRIBUTING.md and register it via RapidML.Adapters.register().",
+  "_status": "future",
   "version": "0.1.0",
-  "note": "Phase 4 will implement ETL from i2b2 PostgreSQL instances (observation_fact, patient_dimension, visit_dimension) to OMOP via SQL mapping queries. This stub documents the conceptual equivalences.",
   "i2b2_versions": ["1.7.x", "1.8.x"],
-  "omop_version": "5.3",
+  "omop_version": "5.4",
   "table_mappings": [
     {
       "i2b2_table": "observation_fact",
@@ -106,7 +106,7 @@
     "i2b2_tool": "Uses i2b2 ontology loader to parse concept paths",
     "omop_requirement": "Load parent concepts and generate concept_ancestor relationships"
   },
-  "phase_4_roadmap": [
+  "implementation_notes": [
     "Create i2b2 PostgreSQL → OMOP INSERT mapping SQL (domain-specific per table)",
     "Implement concept_cd prefix parser (ICD9/ICD10/SNOMED/LOINC/LOCAL)",
     "Implement unit normalization: i2b2 UNITS_CD → SNOMED UCUM → OMOP concept_id",

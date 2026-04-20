@@ -293,7 +293,7 @@ function normalizeConfig(raw) {
   var config = {
     // DATABASE SETTINGS
     db: raw.db || "postgres",
-    schema: raw.schema || "",
+    schema: raw.schema || "cdm_synthea10",
     dataModel: raw.dataModel || "omop",
     startYear: String(raw.startYear || "2016"),
     endYear: String(raw.endYear || "2024"),

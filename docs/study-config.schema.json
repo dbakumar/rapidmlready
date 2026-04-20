@@ -1,240 +1,268 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "StudyConfig DSL v1",
-  "description": "Declarative schema for OMOP-based cohort and prediction studies. Defines the complete configuration needed to generate SQL and analysis scripts.",
+  "title": "RapidML Study Config",
+  "description": "The runtime configuration object produced by normalizeConfig() in core/generator.js and consumed by every plugin (methodologies, templates, adapters). This is NOT a saved file format — it is the internal JavaScript object that flows through the wizard after the user fills the form and clicks Generate Package.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "study_metadata",
-    "study_period",
-    "index_strategy",
-    "cohort_rules",
-    "outcome_rules",
+    "db",
+    "schema",
+    "dataModel",
+    "startYear",
+    "endYear",
+    "baselineDays",
+    "outcomeDays",
+    "debug",
+    "bestPracticeMode",
     "methodology",
-    "analysis_template"
+    "analysisTemplate",
+    "covariateEncoding",
+    "covariates",
+    "customCovariates",
+    "study"
   ],
   "properties": {
-    "study_metadata": {
-      "type": "object",
-      "description": "Study identification and description",
-      "required": ["study_id", "title"],
-      "properties": {
-        "study_id": {
-          "type": "string",
-          "description": "Unique identifier for the study",
-          "examples": ["diabetes_nephropathy_v1"]
-        },
-        "title": {
-          "type": "string",
-          "description": "Human-readable study title",
-          "examples": ["Type 2 Diabetes to Nephropathy Prediction Model"]
-        },
-        "description": {
-          "type": "string",
-          "description": "Detailed study description and clinical rationale"
-        },
-        "version": {
-          "type": "string",
-          "description": "Study version",
-          "examples": ["1.0.0"]
-        }
-      }
+    "db": {
+      "type": "string",
+      "enum": ["postgres", "sqlserver"],
+      "description": "Database dialect. Controls SQL syntax differences (date literals, INTERVAL vs DATEADD, generate_series vs ROW_NUMBER, temp table style).",
+      "default": "postgres"
     },
-    "study_period": {
-      "type": "object",
-      "description": "Administrative study window",
-      "required": ["start_date", "end_date"],
-      "properties": {
-        "start_date": {
-          "type": "string",
-          "format": "date",
-          "description": "Study start date (YYYY-MM-DD format)"
-        },
-        "end_date": {
-          "type": "string",
-          "format": "date",
-          "description": "Study end date (YYYY-MM-DD format)"
-        }
-      }
+    "schema": {
+      "type": "string",
+      "description": "OMOP CDM schema name used to qualify all table references (e.g. schema.condition_occurrence). Sanitized to [a-zA-Z_][a-zA-Z0-9_.]{0,127} at runtime.",
+      "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*$",
+      "maxLength": 128,
+      "examples": ["cdm_synthea10", "omop", "datalake.omop"]
     },
-    "index_strategy": {
-      "type": "object",
-      "description": "How index dates are generated (single-index vs spine)",
-      "required": ["mode", "index_anchor_policy"],
-      "properties": {
-        "mode": {
-          "type": "string",
-          "enum": ["single-index", "repeated-index-spine"],
-          "description": "single-index: one row per person. repeated-index-spine: multiple rows per person over time."
-        },
-        "index_anchor_policy": {
-          "type": "string",
-          "enum": ["first-qualifying-event", "nth-event", "era-start"],
-          "description": "How to determine t0: first qualifying event, nth qualifying event, or era-based start"
-        },
-        "index_step_days": {
-          "type": "integer",
-          "description": "For repeated-index mode: number of days between successive index dates (e.g., 365 for yearly)",
-          "examples": [365, 30, 7]
-        },
-        "max_intervals_per_person": {
-          "type": "integer",
-          "description": "Maximum number of index rows per person (e.g., 20 for 20 years of follow-up)",
-          "examples": [20, 10, 5]
-        }
-      }
+    "dataModel": {
+      "type": "string",
+      "description": "Registered adapter ID. Selects which data model adapter translates evidence blocks into SQL. Currently only 'omop' is implemented.",
+      "default": "omop",
+      "examples": ["omop"]
     },
-    "cohort_rules": {
-      "type": "array",
-      "description": "Rules that define cohort entry (exposure rules)",
-      "items": {
-        "$ref": "#/definitions/rule"
-      }
+    "startYear": {
+      "type": "string",
+      "description": "Study calendar start year (string, used as-is in date literals). Must be a 4-digit year earlier than endYear.",
+      "pattern": "^[0-9]{4}$",
+      "examples": ["2016", "2018"]
     },
-    "outcome_rules": {
-      "type": "array",
-      "description": "Rules that define the outcome variable to predict",
-      "items": {
-        "$ref": "#/definitions/rule"
-      }
+    "endYear": {
+      "type": "string",
+      "description": "Study calendar end year (string, used in date literals). Must be later than startYear.",
+      "pattern": "^[0-9]{4}$",
+      "examples": ["2023", "2024"]
     },
-    "windows": {
-      "type": "object",
-      "description": "Temporal windows for baseline lookback and outcome lookforward",
-      "properties": {
-        "baseline_days": {
-          "type": "integer",
-          "description": "Number of days to look back before index date for baseline features",
-          "examples": [365, 730, 1825]
-        },
-        "outcome_days": {
-          "type": "integer",
-          "description": "Number of days to look forward after index date for outcome observation",
-          "examples": [365, 730]
-        }
-      }
+    "baselineDays": {
+      "type": "string",
+      "description": "Days to look back before the index date for baseline feature computation. Must parse to a positive integer.",
+      "examples": ["365", "730"]
     },
-    "exclusion_rules": {
-      "type": "array",
-      "description": "Rules that exclude persons or rows from the study",
-      "items": {
-        "type": "object",
-        "properties": {
-          "rule_id": { "type": "string" },
-          "rule_type": {
-            "type": "string",
-            "enum": ["pre-index-exclusion", "baseline-exclusion", "ever-before-exclusion"]
-          },
-          "description": { "type": "string" }
-        }
-      }
+    "outcomeDays": {
+      "type": "string",
+      "description": "Days to look forward after the index date for outcome observation. Must parse to a positive integer.",
+      "examples": ["365", "730"]
     },
-    "censoring_rules": {
-      "type": "array",
-      "description": "Rules that censor follow-up (outcome occurs, death, observation end, etc.)",
-      "items": {
-        "type": "object",
-        "properties": {
-          "rule_id": { "type": "string" },
-          "censor_type": {
-            "type": "string",
-            "enum": ["outcome-event", "death", "observation-period-end", "payer-plan-period-end", "administrative-end"],
-            "description": "What event causes censoring"
-          }
-        }
-      }
+    "debug": {
+      "type": "boolean",
+      "description": "When true, generate step-by-step DROP/CREATE TEMP TABLE statements with row-count checkpoints instead of a single CTE chain. Useful for diagnosing small-cohort or empty-result issues.",
+      "default": false
+    },
+    "bestPracticeMode": {
+      "type": "boolean",
+      "description": "When true, include a detailed manifest.json in the output zip. Generated by omop/artifacts.js.",
+      "default": false
     },
     "methodology": {
       "type": "string",
-      "description": "Study design methodology plugin ID (e.g., 'longitudinal-prediction', 'surveillance', 'case-control')",
-      "examples": ["longitudinal-prediction", "surveillance"]
+      "description": "ID of the registered RapidML.Methodologies plugin that builds the spine CTE and the full SQL. Built-in: 'longitudinal-prediction' (one row per person per year) and 'single-window' (one row per person).",
+      "default": "longitudinal-prediction",
+      "examples": ["longitudinal-prediction", "single-window"]
     },
-    "analysis_template": {
+    "analysisTemplate": {
       "type": "string",
-      "description": "Analysis script template plugin ID (e.g., 'logistic-regression', 'decision-tree', 'survival-analysis')",
+      "description": "ID of the registered RapidML.AnalysisTemplates plugin that generates the Python analysis script. Built-in: 'logistic-regression' (run.py) and 'decision-tree' (run_decision_tree.py).",
+      "default": "logistic-regression",
       "examples": ["logistic-regression", "decision-tree"]
     },
-    "best_practice_mode": {
-      "type": "boolean",
-      "description": "Enable additional safety checks (unit harmonization, outlier filtering, prior outcome exclusion, etc.)",
-      "default": false
+    "covariateEncoding": {
+      "type": "string",
+      "enum": ["count", "binary", "count_and_binary"],
+      "description": "Encoding mode for predefined numeric covariates. 'count' = raw count in baseline window; 'binary' = 1/0 flag; 'count_and_binary' = both columns.",
+      "default": "count"
     },
-    "database": {
-      "type": "object",
-      "properties": {
-        "dialect": {
-          "type": "string",
-          "enum": ["postgresql", "sqlserver"],
-          "description": "SQL dialect for code generation"
-        },
-        "schema": {
-          "type": "string",
-          "description": "OMOP CDM schema name",
-          "examples": ["cdm_synthea10", "datalake.omop"]
-        }
+    "covariates": {
+      "type": "array",
+      "description": "Selected predefined covariate IDs to include in the final SELECT. Each ID corresponds to a SQL subquery block in omop/covariates.js.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "age_at_index",
+          "sex_concept_id",
+          "race_concept_id",
+          "ethnicity_concept_id",
+          "baseline_condition_count",
+          "baseline_drug_count",
+          "baseline_visit_count",
+          "baseline_measurement_count",
+          "baseline_egfr",
+          "baseline_creatinine",
+          "baseline_hba1c",
+          "baseline_systolic_bp",
+          "baseline_diastolic_bp",
+          "baseline_bmi",
+          "prior_outcome_history",
+          "prior_hospitalization_flag",
+          "prior_er_visit_flag",
+          "prior_procedure_flag"
+        ]
       }
     },
-    "output_artifacts": {
-      "type": "object",
-      "description": "What to generate and output",
-      "properties": {
-        "sql": { "type": "boolean", "description": "Generate executable SQL", "default": true },
-        "analysis_script": { "type": "boolean", "description": "Generate analysis script (run.py / run.R)", "default": true },
-        "manifest": { "type": "boolean", "description": "Generate JSON manifest", "default": true },
-        "summary": { "type": "boolean", "description": "Generate plain-language README.md", "default": true },
-        "detailed_manifest": { "type": "boolean", "description": "Generate detailed manifest with evidence logic", "default": true }
+    "customCovariates": {
+      "type": "array",
+      "description": "User-defined concept-level covariate features added via the Custom Covariates section. Each entry generates one SQL column in the final SELECT via omop/covariates.js.",
+      "items": {
+        "$ref": "#/definitions/customCovariate"
       }
+    },
+    "study": {
+      "$ref": "#/definitions/studyDefinition"
     }
   },
   "definitions": {
-    "rule": {
+    "studyDefinition": {
       "type": "object",
-      "description": "A single inclusion/exclusion rule with domain and concept set",
-      "required": ["rule_id", "rule_type"],
+      "description": "The evidence block study definition collected by EvidenceUI.collectStudyDefinition(). Contains four blocks: entry, outcome, exclusions, confounders.",
       "properties": {
-        "rule_id": {
-          "type": "string",
-          "description": "Unique identifier for this rule"
-        },
-        "rule_type": {
-          "type": "string",
-          "enum": [
-            "AT_LEAST_N_EVENTS",
-            "VALUE_THRESHOLD",
-            "TEMPORAL_SEQUENCE",
-            "CONCEPT_SET",
-            "ENCOUNTER_CONTEXT",
-            "THERAPY_EXPOSURE",
-            "NLP_HIT",
-            "EXCLUSION"
-          ],
-          "description": "Type of rule from the rule DSL"
-        },
-        "source_domain": {
-          "type": "string",
-          "enum": [
-            "person",
-            "condition_occurrence",
-            "drug_exposure",
-            "procedure_occurrence",
-            "device_exposure",
-            "measurement",
-            "observation",
-            "note",
-            "note_nlp",
-            "visit_occurrence",
-            "visit_detail"
-          ],
-          "description": "OMOP domain this rule operates on"
-        },
-        "concept_set_id": {
-          "type": "string",
-          "description": "Reference to a named concept set (resolved separately)"
-        },
-        "parameters": {
+        "entry": {
           "type": "object",
-          "description": "Rule-specific parameters (varies by rule type)",
-          "additionalProperties": true
+          "description": "Cohort entry block — defines who enters the cohort and sets t0.",
+          "required": ["match", "rows"],
+          "properties": {
+            "match": {
+              "type": "string",
+              "enum": ["all", "any"],
+              "description": "'all': every row must match (HAVING COUNT(DISTINCT row_idx) = N); uses MAX(event_date) as t0. 'any': at least one row matches (UNION ALL); uses MIN(event_date) as t0."
+            },
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "description": "One or more evidence rows. At least one is required — validateConfig() rejects empty entry blocks.",
+              "items": { "$ref": "#/definitions/evidenceRow" }
+            }
+          }
+        },
+        "outcome": {
+          "type": "object",
+          "description": "Outcome block — defines the event to predict. At least one row required.",
+          "required": ["match", "rows"],
+          "properties": {
+            "match": {
+              "type": "string",
+              "enum": ["all", "any"]
+            },
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/definitions/evidenceRow" }
+            }
+          }
+        },
+        "exclusions": {
+          "type": "array",
+          "description": "Patients to remove from the cohort. Each row generates an AND NOT EXISTS(...) clause in the censored spine CTE.",
+          "items": { "$ref": "#/definitions/evidenceRow" }
+        },
+        "confounders": {
+          "type": "array",
+          "description": "Binary flag features. Each row generates a CASE WHEN EXISTS(...) THEN 1 ELSE 0 END column in the final SELECT.",
+          "items": { "$ref": "#/definitions/evidenceRow" }
+        }
+      }
+    },
+    "evidenceRow": {
+      "type": "object",
+      "description": "A single evidence criterion. Processed by the registered data model adapter (omop/evidence-sql.js) into a SQL CTE or subquery.",
+      "required": ["type", "conceptId"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["diagnosis", "lab", "drug", "procedure", "observation", "visit"],
+          "description": "Row type. Determines the OMOP table, concept column, and date column queried. See rule-types.json for the full mapping table."
+        },
+        "conceptId": {
+          "type": "string",
+          "description": "OMOP concept ID. Non-numeric characters are stripped at runtime via String(val).replace(/[^0-9]/g, ''). Use the concept reference sidebar (right panel) to look up IDs.",
+          "examples": ["201826", "3020460", "1545999", "4039057"]
+        },
+        "descendants": {
+          "type": "boolean",
+          "description": "When true (and type is not 'lab' or 'visit'), resolve descendant concept IDs via concept_ancestor. Generates an extra _concepts CTE.",
+          "default": true
+        },
+        "operator": {
+          "type": ["string", "null"],
+          "enum": [">", "<", ">=", "<=", "=", null],
+          "description": "Comparison operator for lab/observation value threshold. Validated against a whitelist; defaults to '>' if invalid."
+        },
+        "value": {
+          "type": ["string", "null"],
+          "description": "Numeric threshold string for lab/observation rows (e.g. '60' for eGFR < 60). Parsed via parseFloat at runtime."
+        },
+        "label": {
+          "type": ["string", "null"],
+          "description": "Human-readable label used in the generated README and manifest.json."
+        },
+        "minCount": {
+          "type": "integer",
+          "description": "Minimum number of matching event records required (generates HAVING COUNT(*) >= N). Values <= 1 produce no HAVING clause.",
+          "minimum": 1,
+          "default": 1
+        },
+        "distinctVisits": {
+          "type": "boolean",
+          "description": "When true, enforce HAVING COUNT(DISTINCT visit_occurrence_id) >= minCount instead of raw row count.",
+          "default": false
+        },
+        "visitContext": {
+          "type": "string",
+          "enum": ["all", "inpatient", "outpatient", "emergency", "custom"],
+          "description": "Filter events by visit type. 'all' = no filter. 'inpatient' = concept 9201, 'outpatient' = 9202, 'emergency' = 9203, 'custom' = visitContextIds array.",
+          "default": "all"
+        },
+        "visitContextIds": {
+          "type": "array",
+          "description": "Custom visit_concept_id values when visitContext is 'custom'.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "customCovariate": {
+      "type": "object",
+      "description": "A user-defined OMOP concept feature added via the wizard Custom Covariates section. Processed by omop/covariates.js after the predefined covariate loop.",
+      "required": ["domain", "conceptId", "aggregation", "label"],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "enum": ["condition", "drug", "lab", "procedure", "observation", "visit"],
+          "description": "OMOP domain — maps to the corresponding table (condition_occurrence, drug_exposure, measurement, procedure_occurrence, observation, visit_occurrence)."
+        },
+        "conceptId": {
+          "type": "string",
+          "description": "OMOP concept ID (digits only — non-numeric characters are stripped at runtime).",
+          "examples": ["201826", "3020460"]
+        },
+        "aggregation": {
+          "type": "string",
+          "enum": ["count", "binary", "last_value", "first_value", "min_value", "max_value"],
+          "description": "How to compute the feature within the baseline window. 'count' = COUNT(*); 'binary' = 1 if any match else 0; 'last_value'/'first_value'/'min_value'/'max_value' = value_as_number aggregations."
+        },
+        "label": {
+          "type": "string",
+          "description": "SQL column alias. Sanitised to lowercase [a-z0-9_] at runtime, truncated to 50 chars. Auto-generated as domain_conceptId if empty.",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 50,
+          "examples": ["diabetes_count", "egfr_last", "metformin_flag"]
         }
       }
     }

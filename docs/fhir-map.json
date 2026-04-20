@@ -1,10 +1,10 @@
 {
-  "title": "FHIR to OMOP Concept Mapping",
-  "description": "Reference mappings from FHIR resource types and code systems to OMOP CDM concept_ids and domains. This is a stub for Phase 4 implementation. Actual mappings will use USAGI or CMS/VA FHIR-to-OMOP converters.",
+  "title": "FHIR to OMOP Concept Mapping (Future Adapter Stub)",
+  "description": "Reference mappings from FHIR resource types and code systems to OMOP CDM concept_ids and domains. No FHIR adapter is implemented in the current codebase. To implement a FHIR adapter, create fhir/evidence-sql.js following the adapter contract in CONTRIBUTING.md and register it via RapidML.Adapters.register().",
+  "_status": "future",
   "version": "0.1.0",
-  "note": "Phase 4 will implement bidirectional FHIR JSON-LD import/export with full code system resolution (SNOMED-CT, LOINC, RxNorm, etc.). This stub documents the conceptual mapping.",
   "fhir_versions": ["R4", "R5"],
-  "omop_version": "5.3",
+  "omop_version": "5.4",
   "concept_domain_mappings": [
     {
       "fhir_resource": "Condition",
@@ -66,7 +66,7 @@
     }
   ],
   "unit_conversions": {
-    "note": "Phase 4 will include unit harmonization for LOINC/UCUM units to standard OMOP unit_concept_ids",
+    "note": "Unit harmonization for LOINC/UCUM units to standard OMOP unit_concept_ids is required when implementing this adapter.",
     "example_missing_unit_mapping": {
       "loinc_code": "2345-7",
       "unit_ucum": "mg/dL",
@@ -92,9 +92,9 @@
     "note": "FHIR Date/DateTime → OMOP date fields (visit_start_date, condition_start_date, measurement_date, etc.)",
     "example": "Observation.effectiveDateTime '2023-11-15T09:30:00' → measurement.measurement_date = 2023-11-15"
   },
-  "phase_4_roadmap": [
-    "Implement FHIR Observation Bundle → OMOP Insert parser (JS + Python backends)",
-    "Implement FHIR JSON-LD import with full value set resolution via FHIR terminology server",
+  "implementation_notes": [
+    "Implement FHIR Observation Bundle → OMOP INSERT parser in fhir/evidence-sql.js",
+    "Implement FHIR JSON-LD import with full value set resolution via a FHIR terminology server",
     "Implement reverse mapping: OMOP result export as FHIR Observation Bundle",
     "Add unit harmonization engine (UCUM → OMOP concept_ids)",
     "Add care site / organization mapping"

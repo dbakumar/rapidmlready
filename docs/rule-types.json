@@ -1,236 +1,248 @@
-{
-  "rule_primitives": [
+﻿{
+  "_comment": "Evidence row type reference for the RapidML wizard. Each type maps to a specific OMOP CDM table. Types are set via the row-type dropdown in the Study Definition step and processed by omop/evidence-sql.js.",
+  "version": "1.0.0",
+
+  "evidence_row_types": [
     {
-      "id": "AT_LEAST_N_EVENTS",
-      "label": "At least N events",
-      "description": "Require a minimum count of events (rows) in a domain within a time window",
-      "parameters": {
-        "min_events": {
-          "type": "integer",
-          "description": "Minimum number of events required"
-        },
-        "min_distinct_dates": {
-          "type": "boolean",
-          "description": "If true, count distinct event dates (not just row count)"
-        },
-        "min_distinct_visits": {
-          "type": "boolean",
-          "description": "If true, count distinct visit_occurrence_id values"
-        }
+      "type": "diagnosis",
+      "label": "Diagnosis / Condition",
+      "omop_table": "condition_occurrence",
+      "concept_column": "condition_concept_id",
+      "date_column": "condition_start_date",
+      "visit_id_column": "visit_occurrence_id",
+      "supports_descendants": true,
+      "supports_value_threshold": false,
+      "supports_visit_context": true,
+      "supports_min_count": true,
+      "supports_distinct_visits": true,
+      "notes": "Used to phenotype conditions and diseases. Descendants are resolved via concept_ancestor when enabled.",
+      "example": {
+        "type": "diagnosis",
+        "conceptId": "201826",
+        "label": "Type 2 Diabetes Mellitus",
+        "descendants": true,
+        "visitContext": "all",
+        "minCount": 1,
+        "distinctVisits": false
+      }
+    },
+    {
+      "type": "lab",
+      "label": "Lab / Measurement (with value threshold)",
+      "omop_table": "measurement",
+      "concept_column": "measurement_concept_id",
+      "date_column": "measurement_date",
+      "visit_id_column": "visit_occurrence_id",
+      "supports_descendants": false,
+      "supports_value_threshold": true,
+      "supports_visit_context": true,
+      "supports_min_count": true,
+      "supports_distinct_visits": true,
+      "notes": "Concept ID match is exact (no descendant expansion for labs). Operator and value are required and validated against the whitelist [>, <, >=, <=, =]. value_as_number is CAST to NUMERIC.",
+      "value_operators": [">", "<", ">=", "<=", "="],
+      "example": {
+        "type": "lab",
+        "conceptId": "3020460",
+        "label": "eGFR < 60",
+        "descendants": false,
+        "operator": "<",
+        "value": "60",
+        "visitContext": "all",
+        "minCount": 1
+      }
+    },
+    {
+      "type": "drug",
+      "label": "Drug / Medication Exposure",
+      "omop_table": "drug_exposure",
+      "concept_column": "drug_concept_id",
+      "date_column": "drug_exposure_start_date",
+      "visit_id_column": "visit_occurrence_id",
+      "supports_descendants": true,
+      "supports_value_threshold": false,
+      "supports_visit_context": true,
+      "supports_min_count": true,
+      "supports_distinct_visits": true,
+      "notes": "Used for medication/therapy phenotyping. Visit context JOIN is only applied when visitContext is not 'all'.",
+      "example": {
+        "type": "drug",
+        "conceptId": "1545999",
+        "label": "Metformin",
+        "descendants": true,
+        "visitContext": "all",
+        "minCount": 1
+      }
+    },
+    {
+      "type": "procedure",
+      "label": "Procedure",
+      "omop_table": "procedure_occurrence",
+      "concept_column": "procedure_concept_id",
+      "date_column": "procedure_date",
+      "visit_id_column": "visit_occurrence_id",
+      "supports_descendants": true,
+      "supports_value_threshold": false,
+      "supports_visit_context": true,
+      "supports_min_count": true,
+      "supports_distinct_visits": true,
+      "notes": "Used for surgical and diagnostic procedure phenotyping.",
+      "example": {
+        "type": "procedure",
+        "conceptId": "4039057",
+        "label": "Dialysis",
+        "descendants": true,
+        "visitContext": "inpatient",
+        "minCount": 1
+      }
+    },
+    {
+      "type": "observation",
+      "label": "Observation (with optional value threshold)",
+      "omop_table": "observation",
+      "concept_column": "observation_concept_id",
+      "date_column": "observation_date",
+      "visit_id_column": "visit_occurrence_id",
+      "supports_descendants": true,
+      "supports_value_threshold": true,
+      "supports_visit_context": true,
+      "supports_min_count": true,
+      "supports_distinct_visits": true,
+      "notes": "Covers social history, surveys, and other observations. Value threshold is optional â€” omit operator/value for presence-only checks.",
+      "example": {
+        "type": "observation",
+        "conceptId": "4275495",
+        "label": "Tobacco smoking status",
+        "descendants": true,
+        "visitContext": "all",
+        "minCount": 1
+      }
+    },
+    {
+      "type": "visit",
+      "label": "Visit Type",
+      "omop_table": "visit_occurrence",
+      "concept_column": "visit_concept_id",
+      "date_column": "visit_start_date",
+      "visit_id_column": null,
+      "supports_descendants": false,
+      "supports_value_threshold": false,
+      "supports_visit_context": false,
+      "supports_min_count": true,
+      "supports_distinct_visits": false,
+      "notes": "Used to require a specific visit type (e.g. inpatient admission, ER visit). The conceptId IS the visit_concept_id. No further descendant expansion.",
+      "common_visit_concept_ids": {
+        "9201": "Inpatient visit",
+        "9202": "Outpatient visit",
+        "9203": "Emergency room visit",
+        "581385": "Telehealth visit"
       },
       "example": {
-        "rule_id": "two_visit_phenotype",
-        "rule_type": "AT_LEAST_N_EVENTS",
-        "source_domain": "condition_occurrence",
-        "concept_set_id": "diabetes",
-        "parameters": {
-          "min_events": 2,
-          "min_distinct_visits": true
-        }
-      }
-    },
-    {
-      "id": "VALUE_THRESHOLD",
-      "label": "Value threshold",
-      "description": "Require measurement/observation values to meet a numeric threshold",
-      "parameters": {
-        "comparator": {
-          "type": "string",
-          "enum": [">", ">=", "<", "<=", "between"],
-          "description": "Comparison operator"
-        },
-        "value": {
-          "type": "number",
-          "description": "Threshold value (or lower bound if between)"
-        },
-        "value_upper": {
-          "type": "number",
-          "description": "Upper bound (if comparator is between)"
-        },
-        "unit_concept_ids": {
-          "type": "array",
-          "description": "Allowed unit_concept_id values (optional harmonization)",
-          "items": { "type": "integer" }
-        }
-      },
-      "example": {
-        "rule_id": "elevated_creatinine",
-        "rule_type": "VALUE_THRESHOLD",
-        "source_domain": "measurement",
-        "concept_set_id": "serum_creatinine",
-        "parameters": {
-          "comparator": ">",
-          "value": 1.5
-        }
-      }
-    },
-    {
-      "id": "TEMPORAL_SEQUENCE",
-      "label": "Temporal sequence",
-      "description": "Require one event to occur before another by X days",
-      "parameters": {
-        "min_days_before": {
-          "type": "integer",
-          "description": "Minimum days event A must precede event B"
-        },
-        "same_day_allowed": {
-          "type": "boolean",
-          "description": "If true, events on the same day satisfy the constraint"
-        },
-        "same_visit_required": {
-          "type": "boolean",
-          "description": "If true, both events must occur in the same visit"
-        }
-      }
-    },
-    {
-      "id": "CONCEPT_SET",
-      "label": "Concept set selection",
-      "description": "Select events by a named concept set with optional descendant expansion or exclusions",
-      "parameters": {
-        "include_descendants": {
-          "type": "boolean",
-          "description": "Include descendant concepts in addition to direct matches",
-          "default": true
-        },
-        "include_mapped": {
-          "type": "boolean",
-          "description": "Include source-to-concept-mapped values",
-          "default": false
-        },
-        "exclude_concept_ids": {
-          "type": "array",
-          "description": "Explicitly exclude these concept IDs",
-          "items": { "type": "integer" }
-        },
-        "validity": {
-          "type": "string",
-          "enum": ["valid-only", "include-invalid"],
-          "description": "Whether to require invalid_reason IS NULL"
-        }
-      }
-    },
-    {
-      "id": "ENCOUNTER_CONTEXT",
-      "label": "Encounter context",
-      "description": "Filter events by visit type (inpatient, outpatient, ED, etc.)",
-      "parameters": {
-        "visit_type_concept_ids": {
-          "type": "array",
-          "description": "Allowed visit_type_concept_id values",
-          "items": { "type": "integer" }
-        },
-        "provider_specialty_concept_ids": {
-          "type": "array",
-          "description": "Filter by provider specialty",
-          "items": { "type": "integer" }
-        },
-        "care_site_ids": {
-          "type": "array",
-          "description": "Filter by care_site_id",
-          "items": { "type": "integer" }
-        }
-      }
-    },
-    {
-      "id": "THERAPY_EXPOSURE",
-      "label": "Therapy/medication exposure",
-      "description": "Filter drug exposures by route, dose, refill pattern, or era-based logic",
-      "parameters": {
-        "exclude_routes": {
-          "type": "array",
-          "description": "Exclude routes (e.g., topical, inhaled)",
-          "items": { "type": "string" }
-        },
-        "min_refills": {
-          "type": "integer",
-          "description": "Minimum number of refills required"
-        },
-        "use_era": {
-          "type": "boolean",
-          "description": "Use drug_era table (combines overlapping exposures) instead of raw drug_exposure"
-        },
-        "dose_range": {
-          "type": "object",
-          "properties": {
-            "min": { "type": "number" },
-            "max": { "type": "number" },
-            "unit": { "type": "string" }
-          }
-        }
-      }
-    },
-    {
-      "id": "NLP_HIT",
-      "label": "NLP note concept hit",
-      "description": "Require concept mentions in clinical notes with optional negation/uncertainty filters",
-      "parameters": {
-        "note_nlp_concept_ids": {
-          "type": "array",
-          "description": "Concept IDs to search in note_nlp",
-          "items": { "type": "integer" }
-        },
-        "exclude_negated": {
-          "type": "boolean",
-          "description": "Exclude mentions marked as negated (if available)"
-        },
-        "exclude_uncertain": {
-          "type": "boolean",
-          "description": "Exclude mentions marked as uncertain (if available)"
-        },
-        "min_mentions": {
-          "type": "integer",
-          "description": "Minimum number of mentions required"
-        }
-      }
-    },
-    {
-      "id": "EXCLUSION",
-      "label": "Exclusion rule",
-      "description": "Exclude persons or rows based on a condition (prior disease, medication, etc.)",
-      "parameters": {
-        "exclusion_scope": {
-          "type": "string",
-          "enum": ["pre-index-ever", "baseline-period", "any-before-index"],
-          "description": "When to apply the exclusion: ever before index, during baseline, or anytime before index"
-        },
-        "event_type": {
-          "type": "string",
-          "description": "The condition/event that triggers exclusion"
-        }
+        "type": "visit",
+        "conceptId": "9201",
+        "label": "Inpatient admission",
+        "descendants": false,
+        "visitContext": "all",
+        "minCount": 1
       }
     }
   ],
+
+  "omop_table_summary": [
+    {
+      "type": "diagnosis",
+      "table": "condition_occurrence",
+      "concept_col": "condition_concept_id",
+      "date_col": "condition_start_date"
+    },
+    {
+      "type": "lab",
+      "table": "measurement",
+      "concept_col": "measurement_concept_id",
+      "date_col": "measurement_date"
+    },
+    {
+      "type": "drug",
+      "table": "drug_exposure",
+      "concept_col": "drug_concept_id",
+      "date_col": "drug_exposure_start_date"
+    },
+    {
+      "type": "procedure",
+      "table": "procedure_occurrence",
+      "concept_col": "procedure_concept_id",
+      "date_col": "procedure_date"
+    },
+    {
+      "type": "observation",
+      "table": "observation",
+      "concept_col": "observation_concept_id",
+      "date_col": "observation_date"
+    },
+    {
+      "type": "visit",
+      "table": "visit_occurrence",
+      "concept_col": "visit_concept_id",
+      "date_col": "visit_start_date"
+    }
+  ],
+
+  "match_modes": [
+    {
+      "id": "all",
+      "description": "Every row in the block must match. Implemented as HAVING COUNT(DISTINCT row_idx) = N. Uses MAX(event_date) as the block's qualifying date (t0).",
+      "use_case": "Multi-criteria phenotyping â€” e.g. diabetes AND CKD AND no prior dialysis"
+    },
+    {
+      "id": "any",
+      "description": "At least one row must match. Implemented as UNION ALL across all rows. Uses MIN(event_date) as the block's qualifying date (t0).",
+      "use_case": "Alternative diagnosis codes â€” e.g. ICD-9 diabetes OR ICD-10 diabetes"
+    }
+  ],
+
+  "visit_contexts": [
+    { "id": "all",        "description": "No visit filter. Matches events regardless of visit type." },
+    { "id": "inpatient",  "concept_id": 9201, "description": "Inpatient visits only." },
+    { "id": "outpatient", "concept_id": 9202, "description": "Outpatient visits only." },
+    { "id": "emergency",  "concept_id": 9203, "description": "Emergency room visits only." },
+    { "id": "custom",     "description": "Provide a comma-separated list of visit_concept_ids in visitContextIds." }
+  ],
+
   "operators": [
-    {
-      "id": "AND",
-      "description": "All rules must be satisfied"
-    },
-    {
-      "id": "OR",
-      "description": "At least one rule must be satisfied"
-    },
-    {
-      "id": "NOT",
-      "description": "Rule must NOT be satisfied"
-    }
+    { "id": ">",  "description": "Greater than" },
+    { "id": "<",  "description": "Less than" },
+    { "id": ">=", "description": "Greater than or equal to" },
+    { "id": "<=", "description": "Less than or equal to" },
+    { "id": "=",  "description": "Equal to (exact numeric match)" }
   ],
-  "temporal_anchors": [
-    {
-      "id": "baseline_start",
-      "description": "Start of baseline window relative to index_date"
-    },
-    {
-      "id": "baseline_end",
-      "description": "End of baseline window relative to index_date"
-    },
-    {
-      "id": "outcome_start",
-      "description": "Start of outcome observation window"
-    },
-    {
-      "id": "outcome_end",
-      "description": "End of outcome observation window"
-    }
+
+  "predefined_covariate_ids": [
+    { "id": "age_at_index",              "group": "Demographics",      "sql_expression": "DATEDIFF(YEAR, p.birth_datetime, s.index_date) or year(index_date) - year_of_birth" },
+    { "id": "sex_concept_id",            "group": "Demographics",      "sql_expression": "p.gender_concept_id" },
+    { "id": "race_concept_id",           "group": "Demographics",      "sql_expression": "p.race_concept_id" },
+    { "id": "ethnicity_concept_id",      "group": "Demographics",      "sql_expression": "p.ethnicity_concept_id" },
+    { "id": "baseline_condition_count",  "group": "Baseline counts",   "sql_expression": "COUNT(*) in condition_occurrence within baseline window" },
+    { "id": "baseline_drug_count",       "group": "Baseline counts",   "sql_expression": "COUNT(*) in drug_exposure within baseline window" },
+    { "id": "baseline_visit_count",      "group": "Baseline counts",   "sql_expression": "COUNT(*) in visit_occurrence within baseline window" },
+    { "id": "baseline_measurement_count","group": "Baseline counts",   "sql_expression": "COUNT(*) in measurement within baseline window" },
+    { "id": "baseline_egfr",             "group": "Baseline labs",     "concept_id": 3020460, "sql_expression": "Most recent value_as_number in measurement within baseline window" },
+    { "id": "baseline_creatinine",       "group": "Baseline labs",     "concept_id": 3016723, "sql_expression": "Most recent value_as_number" },
+    { "id": "baseline_hba1c",            "group": "Baseline labs",     "concept_id": 3004410, "sql_expression": "Most recent value_as_number" },
+    { "id": "baseline_systolic_bp",      "group": "Baseline labs",     "concept_id": 3004249, "sql_expression": "Most recent value_as_number" },
+    { "id": "baseline_diastolic_bp",     "group": "Baseline labs",     "concept_id": 3012888, "sql_expression": "Most recent value_as_number" },
+    { "id": "baseline_bmi",              "group": "Baseline labs",     "concept_id": 3038553, "sql_expression": "Most recent value_as_number" },
+    { "id": "prior_outcome_history",     "group": "Prior history",     "sql_expression": "1 if outcome event occurred before baseline_start, else 0" },
+    { "id": "prior_hospitalization_flag","group": "Prior history",     "concept_id": 9201, "sql_expression": "1 if any inpatient visit before baseline_start, else 0" },
+    { "id": "prior_er_visit_flag",       "group": "Prior history",     "concept_id": 9203, "sql_expression": "1 if any ER visit before baseline_start, else 0" },
+    { "id": "prior_procedure_flag",      "group": "Prior history",     "sql_expression": "1 if any procedure before baseline_start, else 0" }
+  ],
+
+  "custom_covariate_aggregations": [
+    { "id": "count",       "description": "COUNT(*) of matching records in the baseline window" },
+    { "id": "binary",      "description": "1 if any match in baseline window, 0 otherwise" },
+    { "id": "last_value",  "description": "value_as_number from the most recent record in the baseline window (MAX date subquery)" },
+    { "id": "first_value", "description": "value_as_number from the earliest record in the baseline window (MIN date subquery)" },
+    { "id": "min_value",   "description": "MIN(value_as_number) across all records in the baseline window" },
+    { "id": "max_value",   "description": "MAX(value_as_number) across all records in the baseline window" }
   ]
 }
+
