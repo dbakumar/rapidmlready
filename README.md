@@ -20,7 +20,7 @@ This is **not** a replacement for [ATLAS/OHDSI](https://www.ohdsi.org/analytic-t
 2. Set database type, schema, study years, and data model.
 3. Define cohort entry and outcome using evidence blocks (add rows for diagnoses, labs, drugs, procedures).
 4. Configure time windows and pick covariates.
-5. Click **Generate Package** → download zip with `study.sql`, `README.md`, `run.py`.
+5. Click **Generate Package** → download a timestamped zip containing `study.sql`, `README.md`, the analysis script, and (in best-practice mode) `manifest.json`.
 
 ---
 
@@ -30,7 +30,8 @@ This is **not** a replacement for [ATLAS/OHDSI](https://www.ohdsi.org/analytic-t
 |------|---------|
 | `study.sql` | Complete SQL query (CTE pipeline or debug temp tables) |
 | `README.md` | Study summary with all selected parameters |
-| `run.py` | Python analysis script (logistic regression or decision tree) |
+| `run.py` | Python logistic regression script (when logistic regression template is selected) |
+| `run_decision_tree.py` | Python decision tree script (when decision tree template is selected) |
 | `manifest.json` | Detailed study manifest with full evidence logic documentation (best-practice mode only) |
 
 ---
@@ -84,8 +85,9 @@ docs/                             Reference specifications (not loaded at runtim
   i2b2-map.json                     Future: i2b2 mapping stub
 
 examples/                         Example generated studies
-  diabetes_nephropathy/             Sample output from a diabetes → nephropathy
-                                     study (study.sql, run.py, README, etc.)
+  diabetes_nephropathy/             Placeholder folder for a diabetes → nephropathy
+                                     study — currently empty; run the wizard to
+                                     generate and save output here
 ```
 
 ---
@@ -240,7 +242,7 @@ The wizard auto-populates dropdowns from whatever plugins are loaded.
 1. Tab navigation — show/hide wizard sections
 2. Covariate presets — minimal, clinical baseline, extended
 2b. Custom covariates — add/remove rows for user-defined concept ID features
-3. Visit filter — custom visit concept fields
+3. Visit filter — show/hide custom visit concept ID inputs (HTML-only; no dedicated JS function)
 4. Evidence block setup — initialise the 4 evidence containers
 5. Example buttons — pre-fill with diabetes study examples
 6. Concept reference panel — render OMOP concepts in right sidebar
@@ -553,7 +555,7 @@ by `covariates.js` alongside the predefined set.
 
 ## Example
 
-The `examples/diabetes_nephropathy/` folder contains a complete generated package for a Type 2 Diabetes → Nephropathy prediction study.
+The `examples/diabetes_nephropathy/` folder is a placeholder for a Type 2 Diabetes → Nephropathy prediction study. To generate a sample package: open `index.html`, click one of the diabetes example buttons in the Study Definition step, then click **Generate Package**.
 
 ## External Dependencies
 
@@ -568,13 +570,13 @@ Both are loaded via `<script>` tags in `index.html`. No data is sent to these CD
 
 ## Browser Requirements
 
-- Chrome 51+, Firefox 54+, Safari 10+, Edge 15+
-- Requires ES2015 (ES6) support
+- Chrome 57+, Firefox 52+, Safari 10.1+, Edge 16+
+- All JavaScript is ES5-compatible — no transpiler or polyfill required
 - No server required — runs entirely in the browser
 
 ## Generated Script Requirements
 
-The generated `run.py` scripts require:
+The generated Python scripts (`run.py` / `run_decision_tree.py`) require:
 
 - Python 3.8+
 - `pandas`, `sqlalchemy`, `scikit-learn`, `psycopg` (for PostgreSQL)
