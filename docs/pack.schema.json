@@ -1,23 +1,20 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "RapidML Community Pack Manifest",
-  "description": "Schema for a community-contributed plugin pack containing chart patterns, study methodologies, analysis templates, and concept sets",
+  "title": "RapidML Plugin Pack Manifest",
+  "description": "Schema for a distributable plugin pack that bundles methodologies, analysis templates, and concept sets into a single loadable unit. This is a FUTURE extensibility spec — no pack loader is implemented in the current codebase. Today, plugins are added by placing JS files in methodologies/ or templates/ and adding a <script> tag to index.html.",
+  "_status": "future",
   "type": "object",
-  "required": ["id", "version", "owner", "name", "description"],
+  "required": ["id", "version", "name", "description"],
   "properties": {
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9-]+$",
-      "description": "Unique identifier for this pack (e.g., 'diabetes-nephropathy', 'pharmacoepidemiology-core')"
+      "description": "Unique identifier for this pack (e.g., 'diabetes-nephropathy')"
     },
     "version": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-z0-9-]+)?$",
-      "description": "Semantic version (e.g., '1.0.0', '2.1.0-beta.1')"
-    },
-    "owner": {
-      "type": "string",
-      "description": "Repository or organization owner (e.g., 'ohdsi-studies', 'northeastern-cds')"
+      "description": "Semantic version (e.g., '1.0.0')"
     },
     "name": {
       "type": "string",
@@ -43,31 +40,13 @@
         }
       }
     },
-    "compatible_versions": {
+    "compatible_with": {
       "type": "object",
+      "description": "Version compatibility constraints",
       "properties": {
-        "rapidml_min": {
-          "type": "string",
-          "description": "Minimum RapidML version (e.g., '1.1.0')"
-        },
-        "rapidml_max": {
-          "type": "string",
-          "description": "Maximum RapidML version"
-        },
         "omop_cdm": {
           "type": "string",
-          "description": "OMOP CDM version (e.g., '5.3', '5.4')"
-        }
-      }
-    },
-    "dependencies": {
-      "type": "array",
-      "description": "Other packs required by this pack",
-      "items": {
-        "type": "object",
-        "properties": {
-          "pack_id": { "type": "string" },
-          "min_version": { "type": "string" }
+          "description": "OMOP CDM version this pack targets (e.g., '5.3', '5.4')"
         }
       }
     },
@@ -164,39 +143,14 @@
     },
     "examples": {
       "type": "array",
-      "description": "Study configurations demonstrating this pack",
+      "description": "Example study configurations demonstrating this pack",
       "items": {
         "type": "object",
         "properties": {
           "name": { "type": "string" },
-          "config_filepath": {
-            "type": "string",
-            "description": "Relative path to example study config JSON"
-          },
-          "expected_cohort_size": { "type": "integer" },
+          "description": { "type": "string" },
           "note": { "type": "string" }
         }
-      }
-    },
-    "tests": {
-      "type": "array",
-      "description": "Validation or regression tests",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": { "type": "string" },
-          "config": { "type": "object" },
-          "assertions": { "type": "array" }
-        }
-      }
-    },
-    "registry_manifest": {
-      "type": "object",
-      "description": "Optional: cross-reference data for RapidML registry loader",
-      "properties": {
-        "index_url": { "type": "string" },
-        "download_url": { "type": "string" },
-        "checksum": { "type": "string" }
       }
     }
   }
