@@ -136,7 +136,7 @@ var decisionTreeTemplate = {
       '',
       'if __name__ == "__main__":',
       '    main()'
-    ].join("\\n");
+    ].join("\n");
   }
 };
 

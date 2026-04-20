@@ -171,7 +171,7 @@ var logisticRegressionTemplate = {
       '',
       'if __name__ == "__main__":',
       '\tmain()'
-    ].join("\\n");
+    ].join("\n");
   }
 };
 
