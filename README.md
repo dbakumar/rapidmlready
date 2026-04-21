@@ -30,9 +30,25 @@ This is **not** a replacement for [ATLAS/OHDSI](https://www.ohdsi.org/analytic-t
 |------|---------|
 | `study.sql` | Complete SQL query (CTE pipeline or debug temp tables) |
 | `README.md` | Study summary with all selected parameters |
+| `study_explainer.html` | Self-contained plain-language HTML guide with interactive Chart.js spine diagram (always included) |
 | `run.py` | Python logistic regression script (when logistic regression template is selected) |
 | `run_decision_tree.py` | Python decision tree script (when decision tree template is selected) |
 | `manifest.json` | Detailed study manifest with full evidence logic documentation (best-practice mode only) |
+
+### study_explainer.html — Plain-Language Study Explainer
+
+Every generated package includes `study_explainer.html` — a self-contained web page that explains the study to anyone (researcher, clinician, or general public) without requiring any technical knowledge.
+
+**What it contains:**
+- **Research question** — plain-English description of who is included and what event is being predicted, with entry/outcome criteria shown as colour-coded pill badges
+- **Step-by-step cohort flow** — numbered guide through cohort definition, exclusions, look-back/look-forward windows, outcome labelling, and feature collection
+- **Interactive spine diagram** — Chart.js horizontal Gantt chart showing baseline (blue) and outcome (green) windows for three example patients; real red-dot markers drawn on the canvas indicate actual outcome events
+- **Evidence sections** — entry criteria, outcome criteria, exclusions, confounders, and covariates in plain language
+- **Worked example** — Alice's timeline showing exactly how label = 1 and label = 0 are assigned
+- **Data-flow diagram** — numbered CSS steps showing the pipeline from raw patients to trained model
+
+**How it works:**  
+`core/study-explainer.js` exports `RapidML.StudyExplainer.buildHTML(config)`. `core/generator.js` calls this inside `generate()` and adds the result to the zip package. No CDN dependency at build time — Chart.js is loaded from CDN in the generated file itself.
 
 ---
 
@@ -50,6 +66,10 @@ core/                             Generic engine (data-model-independent)
                                      form collection, validation, zip packaging
   dialects.js                       PostgreSQL vs SQL Server syntax helpers
   evidence-ui.js                    Dynamic evidence row forms + data collection
+  study-explainer.js                Plain-language HTML explainer generator —
+                                     produces study_explainer.html (Chart.js
+                                     spine diagram, 5th-grade narrative, worked
+                                     patient example; always added to the zip)
   wizard-ui.js                      Wizard form logic, navigation, presets,
                                      self-check validation panel
 
