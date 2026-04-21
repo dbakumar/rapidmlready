@@ -169,6 +169,7 @@ use the tool, see [README.md](README.md).
 | `generator.js` | Central orchestrator. Sets up the `window.RapidML` global namespace. Contains **all three plugin registries** (Adapters, Methodologies, AnalysisTemplates). Reads HTML form inputs, normalises them into a config object, validates, orchestrates SQL generation via plugins, and packages output into a zip file. | `RapidML.Adapters.register/get/list`, `RapidML.Methodologies.register/get/list`, `RapidML.AnalysisTemplates.register/get/list`, `getFormConfig()`, `normalizeConfig()`, `validateConfig()`, `generate()`, `download()`, `downloadPackage()` |
 | `dialects.js` | Database-specific SQL syntax. Every other file that builds SQL calls these helpers so that one dialect switch produces correct SQL for PostgreSQL or SQL Server. Standalone — no dependencies. | `RapidML.Compiler.Dialects.dialectFor()`, `.quoteDateLiteral()`, `.addDaysExpr()`, `.addYearsExpr()`, `.seriesCTE()` |
 | `evidence-ui.js` | Dynamic evidence row forms. Renders the add/remove row UI for each evidence block (entry, outcome, exclusions, confounders). Collects all row data from the DOM into a study definition object. Pure DOM manipulation — no dependencies. | `RapidML.EvidenceUI.renderBlock()`, `.collectBlockData()`, `.collectListData()`, `.collectStudyDefinition()`, `.applyDiabetesExample()`, `.applyDiabetesLabExample()` |
+| `study-explainer.js` | Plain-language HTML explainer generator. Produces `study_explainer.html` — a self-contained page (5th-grade narrative + Chart.js spine diagram) that is always added to the generated zip. Reads live config values (startYear, baselineDays, outcomeDays, evidence rows) to build the diagram and descriptions. No dependencies on other core files — attaches to `RapidML.StudyExplainer`. | `RapidML.StudyExplainer.buildHTML(config)` — returns complete HTML string |
 | `wizard-ui.js` | All browser-side UI logic. Manages 3-panel layout, step navigation, covariate presets, custom covariate row management, example buttons, concept reference sidebar, dropdown population from registries, and real-time self-check validation. Must be loaded **last** because it depends on everything else. | `goToSection()`, `updateSelfCheck()`, `applyCovariatePreset()`, `populateDropdowns()`, `addCustomCovariateRow()`, `collectCustomCovariates()` |
 
 ### omop/ — OMOP CDM data model
@@ -234,6 +235,9 @@ window.RapidML
   │     .register(plugin)            store plugin by plugin.id
   │     .get(id)                     retrieve by id
   │     .list()                      all registered templates
+  │
+  ├── .StudyExplainer              ← HTML explainer generator (core/study-explainer.js)
+  │     .buildHTML(config)           returns a self-contained study_explainer.html string
   │
   ├── .Compiler                    ← Shared compiler namespace
   │     .Dialects                    DB syntax helpers (core/dialects.js)
@@ -408,6 +412,45 @@ Custom covariates are collected by `collectCustomCovariates()` in
 `wizard-ui.js` and stored in `config.customCovariates[]`. The SQL
 builder in `covariates.js` iterates this array after the predefined
 covariate loop and generates domain-specific subqueries.
+
+---
+
+## core/study-explainer.js — Plain-Language HTML Explainer
+
+### What it does
+
+Generates a self-contained `study_explainer.html` file that is added to every generated zip package. Explains the study in plain language (5th-grade level) to researchers, clinicians, and the general public.
+
+### Key functions
+
+| Function | Returns |
+|----------|---------|
+| `buildHTML(config)` | Complete self-contained HTML string |
+| `shortRowDesc(row)` | Short readable phrase for one evidence row (handles `null` labels gracefully using `type + conceptId + operator/value`) |
+| `blockSummary(block)` | Joins all rows with AND/OR connectors (HTML version with `<em>`) |
+| `blockSummaryText(block)` | Plain-text version for `<title>` and `<h1>` attributes |
+| `buildSpineData(config)` | Computes example patient bar data (gap / baseline / outcome lengths in fractional years) from live config values |
+| `buildChartScript()` | Returns the embedded JS string — Chart.js config plus `outcomeMarkerPlugin` |
+| `buildCSS()` | Returns the embedded CSS string (no emoji, no external fonts) |
+| `buildFlowDiagram(config)` | Data-flow pipeline HTML using numbered blue CSS circles |
+
+### Chart.js integration
+
+- Uses **Chart.js 4.4.2** loaded from CDN (`chart.umd.min.js`) — no build step.
+- Inline plugin `outcomeMarkerPlugin` uses `afterDraw` to draw red circles by converting data-space coordinates to canvas pixels:
+  ```javascript
+  var xPx = chart.scales.x.getPixelForValue(m.x);   // fractional years from study start
+  var yPx = chart.scales.y.getPixelForValue(m.y);   // 0-based row index
+  ```
+- X-axis `max` is `chartMax` — computed from actual bar extents (`gap + baseline + outcome` per row × 1.08 padding), not the full study span. This keeps tick labels readable when windows are short relative to the study years (e.g. 90-day windows over an 8-year study).
+
+### Design rules (important for contributors)
+
+- Load **after** `generator.js` (needs `window.RapidML`) but **before** `wizard-ui.js`.
+- The generated HTML is fully self-contained — all CSS and JS is inlined; no external files needed at view time except Chart.js CDN.
+- **No emoji or Unicode pictographs** in generated HTML — use CSS-only swatches (`border-radius:50%` circles, numbered badges).
+- `safeJSON()` escapes `<` and `>` before embedding config JSON in `<script>` tags to prevent XSS.
+- When `label` is `null` on an evidence row, `shortRowDesc()` builds a description from `type + conceptId + operator/value` — never fall back to a raw concept ID number as the only output.
 
 ---
 
@@ -1211,6 +1254,8 @@ dependencies between files:
 10. methodologies/*.js         ← study design plugins (need compiler)
 11. templates/*.js             ← analysis script generators (need generator
                                   for AnalysisTemplates.register)
+11b. core/study-explainer.js  ← HTML explainer generator (needs generator
+                                  for RapidML namespace; standalone otherwise)
 12. core/wizard-ui.js          ← UI controller (needs EVERYTHING above)
 ```
 
