@@ -517,6 +517,12 @@ function generate() {
       { filename: template.filename, content: runScript, mimeType: "text/plain" }
     ];
 
+    // Add the plain-language HTML study explainer if the module is loaded.
+    if (RapidML.StudyExplainer && typeof RapidML.StudyExplainer.buildHTML === "function") {
+      var explainerHTML = RapidML.StudyExplainer.buildHTML(config);
+      files.push({ filename: "study_explainer.html", content: explainerHTML, mimeType: "text/html" });
+    }
+
     // Add optional best-practice artifacts if enabled.
     if (config.bestPracticeMode && RapidML.Compiler && typeof RapidML.Compiler.buildArtifacts === "function") {
       var artifacts = RapidML.Compiler.buildArtifacts(config, methodology.id);

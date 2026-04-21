@@ -272,6 +272,181 @@
     return lines;
   }
 
+  // ── Plain-language helpers ───────────────────────────────────────
+
+  /**
+   * Build a short readable description of one evidence row.
+   * When label is null/empty, derives text from type + conceptId + threshold.
+   */
+  function _shortRowDesc(row) {
+    if (!row) return "?";
+    var type = (row.type || "diagnosis").toLowerCase();
+    var cid  = row.conceptId || "?";
+    if (row.label && String(row.label).trim()) {
+      var lbl = String(row.label).trim();
+      if ((type === "lab" || type === "observation") && row.operator && row.value)
+        lbl += " " + row.operator + " " + row.value;
+      return lbl;
+    }
+    var desc;
+    if (type === "diagnosis")       desc = "diagnosis " + cid + (row.descendants ? " (and related)" : "");
+    else if (type === "lab")        { desc = "lab " + cid; if (row.operator && row.value) desc += " " + row.operator + " " + row.value; }
+    else if (type === "drug")       desc = "drug " + cid + (row.descendants ? " (and related)" : "");
+    else if (type === "procedure")  desc = "procedure " + cid;
+    else if (type === "observation") { desc = "observation " + cid; if (row.operator && row.value) desc += " " + row.operator + " " + row.value; }
+    else if (type === "visit")      desc = "visit type " + cid;
+    else                            desc = type + " " + cid;
+    var minCount = parseInt(row.minCount, 10) || 1;
+    if (minCount > 1) desc += " (\u2265" + minCount + (row.distinctVisits ? " visits" : "x") + ")";
+    return desc;
+  }
+
+  /** Summarise all rows of a block as a joined plain-text string (AND / OR). */
+  function _entryLabel(config) {
+    var block = config.study && config.study.entry;
+    if (!block || !block.rows || !block.rows.length) return "the entry condition";
+    var connector = block.match === "any" ? " OR " : " AND ";
+    return block.rows.map(_shortRowDesc).join(connector);
+  }
+
+  function _outcomeLabel(config) {
+    var block = config.study && config.study.outcome;
+    if (!block || !block.rows || !block.rows.length) return "the outcome condition";
+    var connector = block.match === "any" ? " OR " : " AND ";
+    return block.rows.map(_shortRowDesc).join(connector);
+  }
+
+  /**
+   * 5th-grade plain-language summary for the single-window design.
+   * Uses actual config values (years, window lengths, concept labels).
+   */
+  function buildSWPlainSummary(config) {
+    var entry        = _entryLabel(config);
+    var outcome      = _outcomeLabel(config);
+    var sy           = String(config.startYear   || "2016");
+    var ey           = String(config.endYear     || "2024");
+    var bl           = Number(config.baselineDays || 365);
+    var oc           = Number(config.outcomeDays  || 365);
+    var blYrs        = Math.round(bl / 365 * 10) / 10;
+    var ocYrs        = Math.round(oc / 365 * 10) / 10;
+    var span         = Number(ey) - Number(sy);
+    var covs         = (config.covariates || []).join(", ") || "none selected";
+    var exclCount    = (config.study && config.study.exclusions && config.study.exclusions.length) || 0;
+    var confCount    = (config.study && config.study.confounders && config.study.confounders.length) || 0;
+
+    return [
+      "---",
+      "",
+      "## 🔬 What This Study Is About (Plain Language)",
+      "",
+      "> **For anyone to read — no medical training needed.**",
+      "",
+      "### The Research Question",
+      "",
+      "**\"Among people who have been diagnosed with " + entry + ",",
+      "who goes on to develop " + outcome + "?\"**",
+      "",
+      "This study looks at patient records from " + sy + " to " + ey + " (" + span + " years).",
+      "It uses a computer program to learn patterns from past medical history that might",
+      "predict whether a patient will develop " + outcome + ".",
+      "",
+      "### How the Study Works",
+      "",
+      "Think of each patient's time in the study like a single ruler snapshot:",
+      "",
+      "```",
+      "Patient enters study",
+      "        |",
+      "        t0    <── first diagnosis of " + entry,
+      "        |",
+      "        |←── Look-BACK " + bl + " days ──→|←── Look-FORWARD " + oc + " days ──→|",
+      "        |        (baseline window)          |       (outcome window)          |",
+      "        |   [collect past medical facts]    | [did " + outcome + " happen?]   |",
+      "```",
+      "",
+      "- **Look-back window (" + bl + " days / ~" + blYrs + " year" + (blYrs === 1 ? "" : "s") + "):**",
+      "  The computer looks at what happened to the patient in the " + bl + " days",
+      "  *before* the index date — how many doctor visits, what medicines, what diagnoses.",
+      "",
+      "- **Look-forward window (" + oc + " days / ~" + ocYrs + " year" + (ocYrs === 1 ? "" : "s") + "):**",
+      "  The computer checks whether the patient was diagnosed with " + outcome,
+      "  in the " + oc + " days *after* this date.",
+      "  - If yes → **label = 1** (the outcome happened)",
+      "  - If no  → **label = 0** (the outcome did not happen)",
+      "",
+      "### One Window Per Patient (Single-Window Design)",
+      "",
+      "This study uses a **single-window design**: each patient contributes",
+      "**exactly one row of data**, anchored at their earliest qualifying event date.",
+      "This is simpler and works well when you want one prediction per patient.",
+      "",
+      "### Who Is in the Study?",
+      "",
+      "- **Included:** Patients in the database with a recorded diagnosis of **" + entry + "**",
+      "  between " + sy + " and " + ey + ".",
+      exclCount > 0
+        ? "- **Excluded:** " + exclCount + " group(s) of patients are removed before analysis to keep the results fair."
+        : "- **Excluded:** No additional exclusions configured.",
+      "",
+      "### What the Computer Learns From",
+      "",
+      "During the look-back window the computer collects these features:",
+      "  - " + covs,
+      confCount > 0
+        ? "  - " + confCount + " additional confounder flag(s) (yes/no medical facts that might skew results)"
+        : "",
+      "",
+      "---",
+      ""
+    ].filter(function (l) { return l !== null && l !== undefined; });
+  }
+
+  /**
+   * ASCII spine diagram using real config values (single-window variant).
+   */
+  function buildSWSpineExample(config) {
+    var sy  = Number(config.startYear  || 2016);
+    var ey  = Number(config.endYear    || 2024);
+    var bl  = Number(config.baselineDays || 365);
+    var oc  = Number(config.outcomeDays  || 365);
+    var entry   = _entryLabel(config);
+    var outcome = _outcomeLabel(config);
+    var blYrs = bl / 365;
+    var ocYrs = oc / 365;
+
+    var pA_t0   = sy;
+    var pA_idx  = Math.round((pA_t0 + blYrs) * 10) / 10;
+    var pA_oEnd = Math.round((pA_t0 + blYrs + ocYrs) * 10) / 10;
+
+    var pB_t0   = sy + 1;
+    var pB_idx  = Math.round((pB_t0 + blYrs) * 10) / 10;
+    var pB_oEnd = Math.round((pB_t0 + blYrs + ocYrs) * 10) / 10;
+
+    return [
+      "## 📅 Example: How Patient Windows Are Built",
+      "",
+      "Using your configuration — baseline " + bl + " days, outcome " + oc + " days,",
+      "study period " + sy + "–" + ey + ":",
+      "",
+      "```",
+      "TIMELINE (" + sy + " → " + ey + ")",
+      "─────────────────────────────────────────────────────────────────",
+      "Patient A  (enters " + pA_t0 + ", no outcome):",
+      "  t0=" + pA_t0 + "  baseline=[" + pA_t0 + "…" + pA_idx + "]  outcome=[" + pA_idx + "…" + pA_oEnd + "]  → label=0",
+      "",
+      "Patient B  (enters " + pB_t0 + ", gets " + outcome + "):",
+      "  t0=" + pB_t0 + "  baseline=[" + pB_t0 + "…" + pB_idx + "]  outcome=[" + pB_idx + "…" + pB_oEnd + "]  → label=1",
+      "",
+      "  (Each patient has EXACTLY ONE row in the dataset.)",
+      "─────────────────────────────────────────────────────────────────",
+      "  [  ] = baseline window (look-back " + bl + " days)",
+      "  [  ] = outcome window  (look-forward " + oc + " days)",
+      "  label=0 → no " + outcome + "  |  label=1 → " + outcome + " occurred",
+      "```",
+      ""
+    ];
+  }
+
   function describeRules(config) {
     var baselineDays = Number(config.baselineDays) || 365;
     var outcomeDays  = Number(config.outcomeDays) || 365;
@@ -281,7 +456,15 @@
 
     var lines = [
       "# Study: Single-Window Prediction",
-      "",
+      ""
+    ];
+
+    // ── Plain-language summary + spine example (top of README) ───
+    lines = lines.concat(buildSWPlainSummary(config));
+    lines = lines.concat(buildSWSpineExample(config));
+
+    // ── Technical config table ────────────────────────────────────
+    lines = lines.concat([
       "## Configuration Summary",
       "",
       "| Item | Value |",
@@ -301,7 +484,7 @@
       "| Selected covariates | " + covariates + " |",
       "| Debug mode | " + (config.debug ? "enabled" : "disabled") + " |",
       ""
-    ];
+    ]);
 
     // ── Detailed evidence logic ──────────────────────
     lines.push("## Study Definition — Detailed Evidence Logic");
