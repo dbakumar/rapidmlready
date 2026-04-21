@@ -158,6 +158,227 @@
   //  README section builders — each returns an array of Markdown lines
   // ---------------------------------------------------------------
 
+  // ── Helpers shared by plain-language sections ──────────────────
+
+  /**
+   * Build a short readable description of one evidence row.
+   * When label is null/empty, derives text from type + conceptId + threshold.
+   */
+  function _shortRowDesc(row) {
+    if (!row) return "?";
+    var type = (row.type || "diagnosis").toLowerCase();
+    var cid  = row.conceptId || "?";
+    if (row.label && String(row.label).trim()) {
+      var lbl = String(row.label).trim();
+      if ((type === "lab" || type === "observation") && row.operator && row.value)
+        lbl += " " + row.operator + " " + row.value;
+      return lbl;
+    }
+    var desc;
+    if (type === "diagnosis")       desc = "diagnosis " + cid + (row.descendants ? " (and related)" : "");
+    else if (type === "lab")        { desc = "lab " + cid; if (row.operator && row.value) desc += " " + row.operator + " " + row.value; }
+    else if (type === "drug")       desc = "drug " + cid + (row.descendants ? " (and related)" : "");
+    else if (type === "procedure")  desc = "procedure " + cid;
+    else if (type === "observation") { desc = "observation " + cid; if (row.operator && row.value) desc += " " + row.operator + " " + row.value; }
+    else if (type === "visit")      desc = "visit type " + cid;
+    else                            desc = type + " " + cid;
+    var minCount = parseInt(row.minCount, 10) || 1;
+    if (minCount > 1) desc += " (\u2265" + minCount + (row.distinctVisits ? " visits" : "x") + ")";
+    return desc;
+  }
+
+  /** Summarise all rows of a block as a joined plain-text string (AND / OR). */
+  function _entryLabel(config) {
+    var block = config.study && config.study.entry;
+    if (!block || !block.rows || !block.rows.length) return "the entry condition";
+    var connector = block.match === "any" ? " OR " : " AND ";
+    return block.rows.map(_shortRowDesc).join(connector);
+  }
+
+  function _outcomeLabel(config) {
+    var block = config.study && config.study.outcome;
+    if (!block || !block.rows || !block.rows.length) return "the outcome condition";
+    var connector = block.match === "any" ? " OR " : " AND ";
+    return block.rows.map(_shortRowDesc).join(connector);
+  }
+
+  /**
+   * 5th-grade plain-language summary — goes at the very top of the README.
+   * Uses actual config values (years, window lengths, concept labels) so a
+   * non-technical reader immediately sees what this particular study does.
+   */
+  function buildPlainSummary(config) {
+    var entry        = _entryLabel(config);
+    var outcome      = _outcomeLabel(config);
+    var sy           = String(config.startYear   || "2016");
+    var ey           = String(config.endYear     || "2024");
+    var bl           = Number(config.baselineDays || 365);
+    var oc           = Number(config.outcomeDays  || 365);
+    var blYrs        = Math.round(bl / 365 * 10) / 10;
+    var ocYrs        = Math.round(oc / 365 * 10) / 10;
+    var span         = Number(ey) - Number(sy);
+    var covs         = (config.covariates || []).join(", ") || "none selected";
+    var exclCount    = (config.study && config.study.exclusions && config.study.exclusions.length) || 0;
+    var confCount    = (config.study && config.study.confounders && config.study.confounders.length) || 0;
+
+    return [
+      "---",
+      "",
+      "## 🔬 What This Study Is About (Plain Language)",
+      "",
+      "> **For anyone to read — no medical training needed.**",
+      "",
+      "### The Research Question",
+      "",
+      "**\"Among people who have been diagnosed with " + entry + ",",
+      "who goes on to develop " + outcome + "?\"**",
+      "",
+      "This study looks at patient records from " + sy + " to " + ey + " (" + span + " years).",
+      "It uses a computer program to learn patterns from past medical history that might",
+      "predict whether a patient will develop " + outcome + " in the future.",
+      "",
+      "### How the Study Works",
+      "",
+      "Think of each patient's time in the study like a sliding ruler:",
+      "",
+      "```",
+      "Patient enters study",
+      "        |",
+      "        t0    <── first diagnosis of " + entry,
+      "        |",
+      "        |←── Look-BACK " + bl + " days ──→|←── Look-FORWARD " + oc + " days ──→|",
+      "        |        (baseline window)          |       (outcome window)          |",
+      "        |   [collect past medical facts]    | [did " + outcome + " happen?]   |",
+      "```",
+      "",
+      "- **Look-back window (" + bl + " days / ~" + blYrs + " year" + (blYrs === 1 ? "" : "s") + "):**",
+      "  The computer looks at what happened to the patient in the " + bl + " days",
+      "  *before* this date — how many doctor visits, what medicines, what diagnoses.",
+      "",
+      "- **Look-forward window (" + oc + " days / ~" + ocYrs + " year" + (ocYrs === 1 ? "" : "s") + "):**",
+      "  The computer checks whether the patient was diagnosed with " + outcome,
+      "  in the " + oc + " days *after* this date.",
+      "  - If yes → **label = 1** (the outcome happened)",
+      "  - If no  → **label = 0** (the outcome did not happen)",
+      "",
+      "### Why Multiple Windows Per Patient? (Longitudinal Design)",
+      "",
+      "This study uses a **longitudinal (repeated-index) design**:",
+      "each eligible patient contributes **one row of data per year** they remain",
+      "in the study.  This makes better use of available data because the same person",
+      "can be 'at risk' for the outcome across multiple years.",
+      "",
+      "```",
+      "Patient A — enters " + sy,
+      "Year 1: |--baseline--|--outcome?--|  → label = 0",
+      "Year 2: |--baseline--|--outcome?--|  → label = 0",
+      "Year 3: |--baseline--|--outcome?--|  → label = 1  ← outcome detected here",
+      "(Year 4 onward: removed because outcome already occurred)",
+      "```",
+      "",
+      "### Who Is in the Study?",
+      "",
+      "- **Included:** Patients in the database with a recorded diagnosis of **" + entry + "**",
+      "  between " + sy + " and " + ey + ".",
+      exclCount > 0
+        ? "- **Excluded:** " + exclCount + " group(s) of patients are removed before analysis to keep the results fair."
+        : "- **Excluded:** No additional exclusions configured.",
+      "",
+      "### What the Computer Learns From",
+      "",
+      "During cada look-back window the computer collects these features:",
+      "  - " + covs,
+      confCount > 0
+        ? "  - " + confCount + " additional confounder flag(s) (yes/no medical facts that might skew results)"
+        : "",
+      "",
+      "### What Happens Next",
+      "",
+      "1. The collected features (look-back) and label (look-forward) form a dataset.",
+      "2. A machine-learning model is trained to predict **label = 1** from the features.",
+      "3. Researchers can then identify which features best predict " + outcome + ".",
+      "",
+      "---",
+      ""
+    ].filter(function (l) { return l !== null && l !== undefined; });
+  }
+
+  /**
+   * ASCII spine diagram section using real config values.
+   * Shows three fictional patients to illustrate how windows are generated.
+   */
+  function buildSpineExample(config) {
+    var sy  = Number(config.startYear  || 2016);
+    var ey  = Number(config.endYear    || 2024);
+    var bl  = Number(config.baselineDays || 365);
+    var oc  = Number(config.outcomeDays  || 365);
+    var entry   = _entryLabel(config);
+    var outcome = _outcomeLabel(config);
+
+    // Build two example patients using real dates
+    var lines = [
+      "## 📅 Example: How Patient Windows Are Built",
+      "",
+      "Using your configuration — baseline " + bl + " days, outcome " + oc + " days,",
+      "study period " + sy + "–" + ey + ":",
+      "",
+      "```",
+      "TIMELINE (" + sy + " → " + ey + ")",
+      "─────────────────────────────────────────────────────────────────"
+    ];
+
+    var span = ey - sy;
+    var blYrs = bl / 365;
+    var ocYrs = oc / 365;
+
+    // Patient A: enters at study start, no outcome
+    var pA_t0 = sy;
+    var windowCount = 0;
+    for (var n = 0; n < 6; n++) {
+      var idxDate = pA_t0 + blYrs * (n + 1);
+      var wEnd    = idxDate + ocYrs;
+      if (wEnd > ey) break;
+      windowCount++;
+    }
+    lines.push("Patient A  (enters " + pA_t0 + ", no outcome — " + windowCount + " window" + (windowCount !== 1 ? "s" : "") + "):");
+    for (var n2 = 0; n2 < Math.min(windowCount, 3); n2++) {
+      var idx2  = pA_t0 + blYrs * (n2 + 1);
+      var bsYr  = Math.round((pA_t0 + blYrs * n2) * 10) / 10;
+      var beYr  = Math.round(idx2 * 10) / 10;
+      var oeYr  = Math.round((idx2 + ocYrs) * 10) / 10;
+      lines.push("  Window " + (n2 + 1) + ": [" + bsYr + "…" + beYr + "] baseline | [" +
+                 beYr + "…" + oeYr + "] outcome → label=0");
+    }
+    if (windowCount > 3) lines.push("  … " + (windowCount - 3) + " more window(s) …");
+
+    // Patient B: enters 1 year later, gets outcome in window 2
+    var pB_t0 = sy + 1;
+    lines.push("");
+    lines.push("Patient B  (enters " + pB_t0 + ", outcome in window 2):");
+    for (var n3 = 0; n3 < 3; n3++) {
+      var idx3  = pB_t0 + blYrs * (n3 + 1);
+      var bsYr2 = Math.round((pB_t0 + blYrs * n3) * 10) / 10;
+      var beYr2 = Math.round(idx3 * 10) / 10;
+      var oeYr2 = Math.round((idx3 + ocYrs) * 10) / 10;
+      if (oeYr2 > ey) break;
+      var lbl = n3 === 1 ? "label=1  ← " + outcome + " detected" : (n3 > 1 ? "(removed — outcome already occurred)" : "label=0");
+      lines.push("  Window " + (n3 + 1) + ": [" + bsYr2 + "…" + beYr2 + "] baseline | [" +
+                 beYr2 + "…" + oeYr2 + "] outcome → " + lbl);
+      if (n3 === 1) break;  // stop after the outcome window
+    }
+
+    lines = lines.concat([
+      "─────────────────────────────────────────────────────────────────",
+      "  [  ] = baseline window (look-back " + bl + " days)",
+      "  [  ] = outcome window  (look-forward " + oc + " days)",
+      "  label=0 → no " + outcome + "  |  label=1 → " + outcome + " occurred",
+      "```",
+      ""
+    ]);
+
+    return lines;
+  }
+
   /** Title line */
   function buildTitle(config) {
     var entry = config.study && config.study.entry && config.study.entry.rows;
@@ -535,6 +756,8 @@
       return [].concat(
         buildTitle(config),
         [""],
+        buildPlainSummary(config),
+        buildSpineExample(config),
         buildConfigTable(config),
         [""],
         buildStudyDefinition(config),

@@ -46,6 +46,25 @@ var decisionTreeTemplate = {
       'import os',
       'from pathlib import Path',
       '',
+      '# ── Dependency check ─────────────────────────────────────────────────────',
+      '# Uses only stdlib (importlib) so it runs before any third-party import.',
+      'import importlib.util as _ilu, sys as _sys',
+      '_REQUIRED = {',
+      '    "pandas":     "pandas",',
+      '    "sqlalchemy": "sqlalchemy",',
+      '    "sklearn":    "scikit-learn",',
+      '}',
+      '_missing = [pip for mod, pip in _REQUIRED.items() if _ilu.find_spec(mod) is None]',
+      'if _missing:',
+      '    print("\\nERROR: The following packages are not installed:")',
+      '    for _m in _missing:',
+      '        print(f"  - {_m}")',
+      '    print("\\nRun this command to install them, then re-run the script:")',
+      '    print("  pip install " + " ".join(_missing))',
+      '    _sys.exit(1)',
+      'del _ilu, _sys, _REQUIRED, _missing',
+      '# ─────────────────────────────────────────────────────────────────────────',
+      '',
       'import pandas as pd',
       'from sqlalchemy import create_engine, text',
       'from sklearn.impute import SimpleImputer',
@@ -136,7 +155,7 @@ var decisionTreeTemplate = {
       '',
       'if __name__ == "__main__":',
       '    main()'
-    ].join("\\n");
+    ].join("\n");
   }
 };
 

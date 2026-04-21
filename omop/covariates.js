@@ -102,10 +102,23 @@
   }
 
   function priorOutcomeExpr(config) {
+    var outcomeRows = (config.study && config.study.outcome && config.study.outcome.rows) || [];
+    if (!outcomeRows.length) return "0 AS prior_outcome_history";
+
+    // The Step 10 WITH clause already declares outcome_r0_concepts, outcome_r1_concepts, ...
+    // (one per outcome row, handling descendants when applicable).
+    // Build a UNION subquery so prior_outcome_history works for any number of outcome rows.
+    var unionParts = outcomeRows.map(function (_, i) {
+      return "SELECT concept_id FROM outcome_r" + i + "_concepts";
+    });
+    var conceptSubq = unionParts.length === 1
+      ? unionParts[0]
+      : unionParts.join(" UNION ALL ");
+
     return "CASE WHEN EXISTS (" +
       "SELECT 1 FROM " + config.schema + ".condition_occurrence co " +
       "WHERE co.person_id = s.person_id " +
-      "AND co.condition_concept_id IN (SELECT concept_id FROM outcome_descendants) " +
+      "AND co.condition_concept_id IN (" + conceptSubq + ") " +
       "AND co.condition_start_date < s.outcome_start" +
       ") THEN 1 ELSE 0 END AS prior_outcome_history";
   }
