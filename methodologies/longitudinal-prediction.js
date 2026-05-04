@@ -286,7 +286,7 @@
       "",
       "### What the Computer Learns From",
       "",
-      "During cada look-back window the computer collects these features:",
+      "During each look-back window the computer collects these features:",
       "  - " + covs,
       confCount > 0
         ? "  - " + confCount + " additional confounder flag(s) (yes/no medical facts that might skew results)"
