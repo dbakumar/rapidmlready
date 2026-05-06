@@ -208,8 +208,8 @@
     // Example patients — t0 relative to startYear in years
     var patients = [
       { name: "Patient A", t0Offset: 0.0, outcomeAt: null },   // no outcome
-      { name: "Patient B", t0Offset: 0.5, outcomeAt: 1.5 },    // early outcome
-      { name: "Patient C", t0Offset: 1.2, outcomeAt: null }    // no outcome
+      { name: "Patient B", t0Offset: 0.5, outcomeAt: 2.8 },    // outcome in Window 2
+      { name: "Patient C", t0Offset: 1.0, outcomeAt: null }    // no outcome
     ];
 
     var bars = [];   // { patient, label, start, end, color, type }
@@ -221,8 +221,8 @@
       var windows = [];
 
       if (isLong) {
-        // Longitudinal: add yearly windows until study end
-        for (var n = 0; n < 8; n++) {
+        // Longitudinal: add up to 3 windows per patient for clarity
+        for (var n = 0; n < 3; n++) {
           var indexDate     = firstIndex + n * baselineYrs;
           var baselineStart = indexDate  - baselineYrs;
           var baselineEnd   = indexDate;
@@ -509,12 +509,26 @@
     /* ------------------------------------------------------------------
        Chart.js dataset — horizontal Gantt bars for the spine diagram
     ------------------------------------------------------------------ */
+    // Per-patient color scheme for clear visual distinction
+    var PATIENT_COLORS = {
+      "Patient A": { baseline: "rgba(59,130,246,0.8)",  baselineBorder: "rgba(37,99,235,1)",
+                     outcome:  "rgba(147,197,253,0.8)", outcomeBorder:  "rgba(59,130,246,1)" },
+      "Patient B": { baseline: "rgba(139,92,246,0.8)",  baselineBorder: "rgba(109,40,217,1)",
+                     outcome:  "rgba(196,181,253,0.8)", outcomeBorder:  "rgba(139,92,246,1)" },
+      "Patient C": { baseline: "rgba(245,158,11,0.8)",  baselineBorder: "rgba(217,119,6,1)",
+                     outcome:  "rgba(253,230,138,0.8)", outcomeBorder:  "rgba(245,158,11,1)" }
+    };
+
     // Build Y labels (patient × window rows)
     var yLabels = [];
     var baselineData = [];
     var outcomeData  = [];
     var gapData      = [];    // invisible spacer from study start to baseline_start
     var outcomeMarkers = [];  // individual point markers for actual outcomes
+    var baselineColors = [];
+    var baselineBorderColors = [];
+    var outcomeColors = [];
+    var outcomeBorderColors = [];
 
     spineData.bars.forEach(function (b) {
       var lbl = isLong
@@ -530,6 +544,13 @@
       gapData.push(gapLen);
       baselineData.push(baselineLen);
       outcomeData.push(outcomeLen);
+
+      // Per-patient colors
+      var pc = PATIENT_COLORS[b.patient] || PATIENT_COLORS["Patient A"];
+      baselineColors.push(pc.baseline);
+      baselineBorderColors.push(pc.baselineBorder);
+      outcomeColors.push(pc.outcome);
+      outcomeBorderColors.push(pc.outcomeBorder);
 
       if (b.hasOutcome && b.outcomeAtYr) {
         outcomeMarkers.push({
@@ -552,6 +573,10 @@
       gapData: gapData,
       baselineData: baselineData,
       outcomeData: outcomeData,
+      baselineColors: baselineColors,
+      baselineBorderColors: baselineBorderColors,
+      outcomeColors: outcomeColors,
+      outcomeBorderColors: outcomeBorderColors,
       outcomeMarkers: outcomeMarkers,
       startYear: spineData.startYear,
       endYear: spineData.endYear,
@@ -597,41 +622,41 @@
       '<h2>📅 Patient Time Windows — Visual Spine Diagram</h2>' +
       '<div class="spine-legend">' +
         '<div class="legend-item">' +
-          '<span class="legend-swatch swatch-baseline"></span>' +
-          '<div><strong>Blue bar — Look-back (baseline) window</strong><br>' +
-          'The ' + pluralDays(Number(config.baselineDays) || 365) + ' of past medical history the model learns from ' +
-          '(diagnoses, labs, medicines, visits before the index date).</div>' +
+          '<span class="legend-swatch swatch-patient-a"></span>' +
+          '<div><strong>Patient A</strong> (blue) — No outcome. All windows get <span class="label-no">label = 0</span>.</div>' +
         '</div>' +
         '<div class="legend-item">' +
-          '<span class="legend-swatch swatch-outcome"></span>' +
-          '<div><strong>Green bar — Look-forward (outcome) window</strong><br>' +
-          'The ' + pluralDays(Number(config.outcomeDays) || 365) + ' after the index date. ' +
-          'Did the outcome happen here? ' +
-          '<span class="label-yes">Yes → label = 1</span> &nbsp; ' +
-          '<span class="label-no">No → label = 0</span></div>' +
+          '<span class="legend-swatch swatch-patient-b"></span>' +
+          '<div><strong>Patient B</strong> (purple) — Outcome occurs in Window 2. That row gets <span class="label-yes">label = 1</span>. ' +
+          'Later windows are removed (censored).</div>' +
+        '</div>' +
+        '<div class="legend-item">' +
+          '<span class="legend-swatch swatch-patient-c"></span>' +
+          '<div><strong>Patient C</strong> (amber) — No outcome. All windows get <span class="label-no">label = 0</span>.</div>' +
         '</div>' +
         '<div class="legend-item">' +
           '<span class="legend-swatch swatch-dot"></span>' +
           '<div><strong>Red dot — Outcome event detected</strong><br>' +
-          'Shows the approximate date the outcome was first recorded inside a look-forward window. ' +
-          'That row gets <span class="label-yes">label = 1</span>. ' +
-          'All windows for the same patient that come after that point are ' +
-          '<em>removed</em> — because the outcome already happened and we do not want to count it twice.</div>' +
+          'The approximate date the outcome was first recorded. That row gets <span class="label-yes">label = 1</span>. ' +
+          'All later windows for that patient are removed.</div>' +
         '</div>' +
       '</div>' +
+      '<p class="muted" style="margin-bottom:0.5rem">' +
+        'Darker bars = <strong>look-back (baseline)</strong> window (' + pluralDays(Number(config.baselineDays) || 365) + '). ' +
+        'Lighter bars = <strong>look-forward (outcome)</strong> window (' + pluralDays(Number(config.outcomeDays) || 365) + ').</p>' +
       '<div class="chart-wrap"><canvas id="spineChart"></canvas></div>' +
       '<div class="outcome-callout">' +
         '<span class="callout-icon"></span>' +
         '<div>' +
-          '<strong>Worked example — how to read a red dot:</strong><br>' +
-          'Look at the row labelled <em>"Patient B — Window 2"</em> in the chart. ' +
-          'Its green (look-forward) bar contains a red dot. That means:<br>' +
-          '① Patient B\'s outcome event was recorded during Window 2\'s look-forward period.<br>' +
-          '② That row is saved with <span class="label-yes">label = 1</span> (outcome happened).<br>' +
-          '③ <em>"Patient B — Window 3"</em> and any later windows do <strong>not appear</strong> in the chart ' +
-          'because they would start after the outcome — the patient has already been censored.<br>' +
-          'Patient A and Patient C have <em>no red dots</em> — their outcome windows are all ' +
-          '<span class="label-no">label = 0</span>.' +
+          '<strong>How to read this chart:</strong><br>' +
+          'Each row is one time window for a patient. ' +
+          'The darker bar shows the look-back period (medical history collected). ' +
+          'The lighter bar shows the look-forward period (where we check for the outcome).<br><br>' +
+          '<strong>Patient B — Window 2</strong> has a <span class="label-yes">red dot</span> in its lighter bar. This means:<br>' +
+          '① The outcome event was recorded during Window 2\'s look-forward period.<br>' +
+          '② That row is saved with <span class="label-yes">label = 1</span>.<br>' +
+          '③ No Window 3 appears for Patient B — the patient is censored after the outcome.<br>' +
+          'Patient A and Patient C have no red dots — all their rows are <span class="label-no">label = 0</span>.' +
         '</div>' +
       '</div>' +
       '</div>\n\n' +
@@ -712,7 +737,7 @@
     return [
       '  var ctx = document.getElementById("spineChart").getContext("2d");',
       '  var barCount = C.yLabels.length;',
-      '  var height   = Math.max(320, barCount * 38 + 80);',
+      '  var height   = Math.max(320, barCount * 48 + 100);',
       '  ctx.canvas.parentNode.style.height = height + "px";',
       '',
       '  // ── Inline Chart.js plugin: draw red circles for outcome events ──────',
@@ -761,9 +786,8 @@
       '  };',
       '',
       '  // ── Stacked horizontal bar chart ─────────────────────────────────────',
-      '  // Stack order: gap (invisible spacer) → baseline (blue) → outcome (green)',
-      '  // An empty scatter dataset is added so "Outcome event (red dot)" appears',
-      '  // as a legend entry matching the manual dots drawn by outcomeMarkerPlugin.',
+      '  // Stack order: gap (invisible spacer) → baseline (colored) → outcome (lighter)',
+      '  // Each patient has a unique color. A scatter dataset adds a red-dot legend entry.',
       '  new Chart(ctx, {',
       '    type: "bar",',
       '    data: {',
@@ -779,23 +803,22 @@
       '        {',
       '          label: "Baseline (look-back)",',
       '          data: C.baselineData,',
-      '          backgroundColor: "rgba(59,130,246,0.75)",',
-      '          borderColor: "rgba(37,99,235,0.9)",',
-      '          borderWidth: 1,',
+      '          backgroundColor: C.baselineColors,',
+      '          borderColor: C.baselineBorderColors,',
+      '          borderWidth: 1.5,',
       '          stack: "spine",',
-      '          borderRadius: 3',
+      '          borderRadius: 4',
       '        },',
       '        {',
       '          label: "Outcome window (look-forward)",',
       '          data: C.outcomeData,',
-      '          backgroundColor: "rgba(34,197,94,0.75)",',
-      '          borderColor: "rgba(21,128,61,0.9)",',
-      '          borderWidth: 1,',
+      '          backgroundColor: C.outcomeColors,',
+      '          borderColor: C.outcomeBorderColors,',
+      '          borderWidth: 1.5,',
       '          stack: "spine",',
-      '          borderRadius: 3',
+      '          borderRadius: 4',
       '        },',
       '        {',
-      '          // Empty dataset — only here so the legend shows the red-dot entry',
       '          label: "Outcome event (red dot = label 1)",',
       '          data: [],',
       '          backgroundColor: "rgba(220,38,38,0.92)",',
@@ -813,7 +836,16 @@
       '        legend: {',
       '          display: true,',
       '          labels: {',
-      '            filter: function(item) { return item.text !== "Gap (hidden)"; }',
+      '            filter: function(item) { return item.text !== "Gap (hidden)"; },',
+      '            generateLabels: function(chart) {',
+      '              // Custom legend: show per-patient color boxes + red dot',
+      '              return [',
+      '                { text: "Patient A (baseline / outcome)", fillStyle: "rgba(59,130,246,0.8)", strokeStyle: "rgba(37,99,235,1)", lineWidth: 1.5 },',
+      '                { text: "Patient B (baseline / outcome)", fillStyle: "rgba(139,92,246,0.8)", strokeStyle: "rgba(109,40,217,1)", lineWidth: 1.5 },',
+      '                { text: "Patient C (baseline / outcome)", fillStyle: "rgba(245,158,11,0.8)", strokeStyle: "rgba(217,119,6,1)", lineWidth: 1.5 },',
+      '                { text: "Outcome event (red dot)", fillStyle: "rgba(220,38,38,0.92)", strokeStyle: "rgba(220,38,38,1)", lineWidth: 0, pointStyle: "circle" }',
+      '              ];',
+      '            }',
       '          }',
       '        },',
       '        tooltip: {',
@@ -833,8 +865,6 @@
       '          stacked: true,',
       '          min: 0,',
       '          max: C.chartMax,',
-      '          // chartMax is computed from actual bar extents, not the full study span.',
-      '          // This keeps the x-axis tight when windows are short (e.g. 90 days).',
       '          title: {',
       '            display: true,',
       '            text: "Years from Study Start (" + C.startYear + ")"',
@@ -845,10 +875,12 @@
       '            }',
       '          }',
       '        },',
-      '        y: { stacked: true }',
+      '        y: {',
+      '          stacked: true,',
+      '          ticks: { font: { weight: "bold" } }',
+      '        }',
       '      }',
       '    },',
-      '    // Inline plugin array (Chart.js 4 top-level key)',
       '    plugins: [outcomeMarkerPlugin]',
       '  });',
     ].join("\n");
@@ -915,8 +947,9 @@
       '  .spine-legend { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 1rem; }',
       '  .legend-item { display: flex; align-items: flex-start; gap: 0.75rem; font-size: 0.9rem; line-height: 1.4; }',
       '  .legend-swatch { flex-shrink: 0; width: 28px; height: 18px; border-radius: 4px; margin-top: 2px; display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 700; }',
-      '  .swatch-baseline { background: rgba(59,130,246,0.75); border: 1px solid rgba(37,99,235,0.9); }',
-      '  .swatch-outcome  { background: rgba(34,197,94,0.75);  border: 1px solid rgba(21,128,61,0.9); }',
+      '  .swatch-patient-a { background: rgba(59,130,246,0.8); border: 1px solid rgba(37,99,235,1); }',
+      '  .swatch-patient-b { background: rgba(139,92,246,0.8); border: 1px solid rgba(109,40,217,1); }',
+      '  .swatch-patient-c { background: rgba(245,158,11,0.8); border: 1px solid rgba(217,119,6,1); }',
       '  .swatch-dot      { background: rgba(220,38,38,0.92); width: 14px; height: 14px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }',
       '  .label-yes { color: #166534; font-weight: 700; }',
       '  .label-no  { color: #6b7280; font-weight: 700; }',
