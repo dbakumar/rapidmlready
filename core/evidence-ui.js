@@ -19,12 +19,16 @@
  *   {
  *     type:            "diagnosis" | "lab" | "drug" | "procedure" |
  *                      "observation" | "visit"
- *     conceptId:       OMOP concept ID string, e.g. "201826"
+ *     conceptId:       first concept/code token (legacy compatibility)
+ *     conceptIds:      array of concept/code tokens (e.g. ["201826","E11.9"])
+ *     codingMethod:    "concept_id" | "icd10" | "icd9" | "rxnorm" |
+ *                      "loinc" | "snomed" | "source_value"
  *     descendants:     boolean - include concept_ancestor descendants?
  *     operator:        lab/observation only: ">" | "<" | ">=" | "<="
  *     value:           lab/observation only: numeric threshold
  *     label:           human-readable name (auto or manual)
  *     minCount:        minimum number of matching records (default 1)
+ *     minSpacingDays:  require qualifying events to be this many days apart
  *     distinctVisits:  count distinct visit_occurrence IDs?
  *     visitContext:    "all" | "inpatient" | "outpatient" | "emergency" |
  *                      "custom"
@@ -77,7 +81,24 @@
     { value: "custom",     label: "Custom IDs…" }
   ];
 
+  var CODING_METHOD_OPTIONS = [
+    { value: "concept_id", label: "OMOP Concept ID" },
+    { value: "icd10", label: "ICD-10" },
+    { value: "icd9", label: "ICD-9" },
+    { value: "rxnorm", label: "RxNorm" },
+    { value: "loinc", label: "LOINC" },
+    { value: "snomed", label: "SNOMED" },
+    { value: "source_value", label: "Raw Source Value" }
+  ];
+
   var rowCounter = 0;
+
+  function parseConceptTokens(value) {
+    return String(value || "")
+      .split(/[\s,;|]+/)
+      .map(function (token) { return token.trim(); })
+      .filter(Boolean);
+  }
 
   // ── Render a single evidence row ──────────────────────────────
 
@@ -105,6 +126,10 @@
     var dvDisplay       = showDV       ? "" : "display:none;";
     var visitCtxDisplay = showVisitCtx ? "" : "display:none;";
 
+    var conceptInputValue = Array.isArray(defaults.conceptIds) && defaults.conceptIds.length
+      ? defaults.conceptIds.join(", ")
+      : (defaults.conceptId || "");
+
     row.innerHTML = [
       '<div class="w-36">',
       '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Type</label>',
@@ -112,8 +137,18 @@
       '</div>',
 
       '<div class="w-32">',
-      '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Concept ID</label>',
-      '  <input type="text" class="ev-concept form-input border border-slate-300 p-1.5 w-full rounded text-xs" placeholder="e.g. 201826" value="' + (defaults.conceptId || "") + '"/>',
+      '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Coding Method</label>',
+      '  <select class="ev-coding-method form-input border border-slate-300 p-1.5 w-full rounded text-xs">',
+      CODING_METHOD_OPTIONS.map(function(o) {
+          var sel = o.value === (defaults.codingMethod || "concept_id") ? " selected" : "";
+          return '      <option value="' + o.value + '"' + sel + '>' + o.label + '</option>';
+        }).join(""),
+      '  </select>',
+      '</div>',
+
+      '<div class="w-40">',
+      '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Code Values</label>',
+      '  <input type="text" class="ev-concept form-input border border-slate-300 p-1.5 w-full rounded text-xs" placeholder="e.g. 201826, E11.9" value="' + conceptInputValue + '" title="Enter one or more values separated by comma or space"/>',
       '</div>',
 
       '<div class="ev-visit-ctx-field" style="' + visitCtxDisplay + '">',
@@ -157,6 +192,11 @@
       '<div class="w-14">',
       '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Min #</label>',
       '  <input type="number" class="ev-min-count form-input border border-slate-300 p-1.5 w-full rounded text-xs" min="1" step="1" placeholder="1" value="' + (defaults.minCount > 1 ? defaults.minCount : "") + '" title="Minimum number of matching records (default: 1)"/>',
+      '</div>',
+
+      '<div class="w-16">',
+      '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Gap Days</label>',
+      '  <input type="number" class="ev-min-spacing form-input border border-slate-300 p-1.5 w-full rounded text-xs" min="0" step="1" placeholder="0" value="' + (defaults.minSpacingDays > 0 ? defaults.minSpacingDays : "") + '" title="Require events to be at least N days apart (e.g. 30)"/>',
       '</div>',
 
       '<div class="ev-dv-field flex items-center gap-1" style="' + dvDisplay + '">',
@@ -281,13 +321,17 @@
     container.querySelectorAll(".evidence-row").forEach(function (el) {
       var type = el.querySelector(".ev-type").value;
       var conceptIdVal = el.querySelector(".ev-concept").value.trim();
+      var conceptTokens = parseConceptTokens(conceptIdVal);
       var operator = el.querySelector(".ev-operator") ? el.querySelector(".ev-operator").value : ">";
       var value = el.querySelector(".ev-value") ? el.querySelector(".ev-value").value.trim() : "";
       var descendants = el.querySelector(".ev-descendants") ? el.querySelector(".ev-descendants").checked : true;
       var label = el.querySelector(".ev-label") ? el.querySelector(".ev-label").value.trim() : "";
+      var codingMethod = el.querySelector(".ev-coding-method") ? el.querySelector(".ev-coding-method").value : "concept_id";
 
       var minCountRaw = el.querySelector(".ev-min-count") ? parseInt(el.querySelector(".ev-min-count").value, 10) : 1;
       var minCount = (minCountRaw > 1) ? minCountRaw : 1;
+      var minSpacingRaw = el.querySelector(".ev-min-spacing") ? parseInt(el.querySelector(".ev-min-spacing").value, 10) : 0;
+      var minSpacingDays = (minSpacingRaw > 0) ? minSpacingRaw : 0;
       var distinctVisits = el.querySelector(".ev-distinct-visits") ? el.querySelector(".ev-distinct-visits").checked : false;
       var visitCtxEl = el.querySelector(".ev-visit-ctx");
       var visitContextMode = visitCtxEl ? visitCtxEl.value : "all";
@@ -296,19 +340,22 @@
         ? visitCtxIdsEl.value.split(",").map(function(s) { return s.trim(); }).filter(Boolean)
         : [];
 
-      if (conceptIdVal) {
+      if (conceptTokens.length > 0) {
         var hasValue = (type === "lab" || type === "observation");
         var hasDesc  = (type !== "lab" && type !== "visit");
         var hasDV    = (type !== "lab" && type !== "visit");
         var hasVC    = (VISIT_LINKABLE.indexOf(type) >= 0);
         rows.push({
           type: type,
-          conceptId: conceptIdVal,
+          conceptId: conceptTokens[0],
+          conceptIds: conceptTokens,
+          codingMethod: codingMethod,
           descendants: hasDesc ? descendants : false,
           operator: hasValue ? operator : null,
           value: hasValue ? value : null,
           label: label || null,
           minCount: minCount,
+          minSpacingDays: minSpacingDays,
           distinctVisits: hasDV ? distinctVisits : false,
           visitContext: hasVC ? visitContextMode : "all",
           visitContextIds: (hasVC && visitContextMode === "custom") ? visitContextIds : []
@@ -329,13 +376,17 @@
     container.querySelectorAll(".evidence-row").forEach(function (el) {
       var type = el.querySelector(".ev-type").value;
       var conceptIdVal = el.querySelector(".ev-concept").value.trim();
+      var conceptTokens = parseConceptTokens(conceptIdVal);
       var operator = el.querySelector(".ev-operator") ? el.querySelector(".ev-operator").value : ">";
       var value = el.querySelector(".ev-value") ? el.querySelector(".ev-value").value.trim() : "";
       var descendants = el.querySelector(".ev-descendants") ? el.querySelector(".ev-descendants").checked : true;
       var label = el.querySelector(".ev-label") ? el.querySelector(".ev-label").value.trim() : "";
+      var codingMethod = el.querySelector(".ev-coding-method") ? el.querySelector(".ev-coding-method").value : "concept_id";
 
       var minCountRaw = el.querySelector(".ev-min-count") ? parseInt(el.querySelector(".ev-min-count").value, 10) : 1;
       var minCount = (minCountRaw > 1) ? minCountRaw : 1;
+      var minSpacingRaw = el.querySelector(".ev-min-spacing") ? parseInt(el.querySelector(".ev-min-spacing").value, 10) : 0;
+      var minSpacingDays = (minSpacingRaw > 0) ? minSpacingRaw : 0;
       var distinctVisits = el.querySelector(".ev-distinct-visits") ? el.querySelector(".ev-distinct-visits").checked : false;
       var visitCtxEl2 = el.querySelector(".ev-visit-ctx");
       var visitContextMode2 = visitCtxEl2 ? visitCtxEl2.value : "all";
@@ -344,19 +395,22 @@
         ? visitCtxIdsEl2.value.split(",").map(function(s) { return s.trim(); }).filter(Boolean)
         : [];
 
-      if (conceptIdVal) {
+      if (conceptTokens.length > 0) {
         var hasValue = (type === "lab" || type === "observation");
         var hasDesc  = (type !== "lab" && type !== "visit");
         var hasDV    = (type !== "lab" && type !== "visit");
         var hasVC    = (VISIT_LINKABLE.indexOf(type) >= 0);
         items.push({
           type: type,
-          conceptId: conceptIdVal,
+          conceptId: conceptTokens[0],
+          conceptIds: conceptTokens,
+          codingMethod: codingMethod,
           descendants: hasDesc ? descendants : false,
           operator: hasValue ? operator : null,
           value: hasValue ? value : null,
           label: label || ("item_" + items.length),
           minCount: minCount,
+          minSpacingDays: minSpacingDays,
           distinctVisits: hasDV ? distinctVisits : false,
           visitContext: hasVC ? visitContextMode2 : "all",
           visitContextIds: (hasVC && visitContextMode2 === "custom") ? visitContextIds2 : []

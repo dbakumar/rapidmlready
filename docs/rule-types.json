@@ -14,15 +14,19 @@
       "supports_value_threshold": false,
       "supports_visit_context": true,
       "supports_min_count": true,
+      "supports_min_spacing_days": true,
       "supports_distinct_visits": true,
-      "notes": "Used to phenotype conditions and diseases. Descendants are resolved via concept_ancestor when enabled.",
+      "notes": "Used to phenotype conditions and diseases. Descendants are resolved via concept_ancestor when enabled. Multiple concept IDs/source codes are supported via comma-separated input.",
       "example": {
         "type": "diagnosis",
         "conceptId": "201826",
+        "conceptIds": ["201826", "E11.9", "E11.65"],
+        "codingMethod": "concept_id",
         "label": "Type 2 Diabetes Mellitus",
         "descendants": true,
         "visitContext": "all",
         "minCount": 1,
+        "minSpacingDays": 30,
         "distinctVisits": false
       }
     },
@@ -37,12 +41,14 @@
       "supports_value_threshold": true,
       "supports_visit_context": true,
       "supports_min_count": true,
+      "supports_min_spacing_days": true,
       "supports_distinct_visits": true,
       "notes": "Concept ID match is exact (no descendant expansion for labs). Operator and value are required and validated against the whitelist [>, <, >=, <=, =]. value_as_number is CAST to NUMERIC.",
       "value_operators": [">", "<", ">=", "<=", "="],
       "example": {
         "type": "lab",
         "conceptId": "3020460",
+        "codingMethod": "loinc",
         "label": "eGFR < 60",
         "descendants": false,
         "operator": "<",
@@ -62,11 +68,13 @@
       "supports_value_threshold": false,
       "supports_visit_context": true,
       "supports_min_count": true,
+      "supports_min_spacing_days": true,
       "supports_distinct_visits": true,
       "notes": "Used for medication/therapy phenotyping. Visit context JOIN is only applied when visitContext is not 'all'.",
       "example": {
         "type": "drug",
         "conceptId": "1545999",
+        "codingMethod": "rxnorm",
         "label": "Metformin",
         "descendants": true,
         "visitContext": "all",
@@ -84,6 +92,7 @@
       "supports_value_threshold": false,
       "supports_visit_context": true,
       "supports_min_count": true,
+      "supports_min_spacing_days": true,
       "supports_distinct_visits": true,
       "notes": "Used for surgical and diagnostic procedure phenotyping.",
       "example": {
@@ -106,6 +115,7 @@
       "supports_value_threshold": true,
       "supports_visit_context": true,
       "supports_min_count": true,
+      "supports_min_spacing_days": true,
       "supports_distinct_visits": true,
       "notes": "Covers social history, surveys, and other observations. Value threshold is optional â€” omit operator/value for presence-only checks.",
       "example": {
@@ -128,6 +138,7 @@
       "supports_value_threshold": false,
       "supports_visit_context": false,
       "supports_min_count": true,
+      "supports_min_spacing_days": true,
       "supports_distinct_visits": false,
       "notes": "Used to require a specific visit type (e.g. inpatient admission, ER visit). The conceptId IS the visit_concept_id. No further descendant expansion.",
       "common_visit_concept_ids": {

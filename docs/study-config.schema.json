@@ -192,8 +192,20 @@
         },
         "conceptId": {
           "type": "string",
-          "description": "OMOP concept ID. Non-numeric characters are stripped at runtime via String(val).replace(/[^0-9]/g, ''). Use the concept reference sidebar (right panel) to look up IDs.",
+          "description": "Legacy primary token from the concept input. Usually the first item from conceptIds.",
           "examples": ["201826", "3020460", "1545999", "4039057"]
+        },
+        "conceptIds": {
+          "type": "array",
+          "description": "Optional list of one or more concept IDs and/or source codes (for example ICD-10 strings). Numeric tokens are matched against standard concept columns; non-numeric tokens are matched against *_source_value columns.",
+          "items": { "type": "string" },
+          "examples": [["201826", "443767"], ["E11.9", "E11.65"], ["1545653", "1992672"]]
+        },
+        "codingMethod": {
+          "type": "string",
+          "enum": ["concept_id", "icd10", "icd9", "rxnorm", "loinc", "snomed", "source_value"],
+          "description": "How the code values should be interpreted. concept_id uses OMOP standard concept IDs; other values map source codes using OMOP concept vocabulary and source columns.",
+          "default": "concept_id"
         },
         "descendants": {
           "type": "boolean",
@@ -218,6 +230,12 @@
           "description": "Minimum number of matching event records required (generates HAVING COUNT(*) >= N). Values <= 1 produce no HAVING clause.",
           "minimum": 1,
           "default": 1
+        },
+        "minSpacingDays": {
+          "type": "integer",
+          "description": "Optional minimum gap in days between qualifying events (for persistence rules like two diagnoses >=30 days apart).",
+          "minimum": 0,
+          "default": 0
         },
         "distinctVisits": {
           "type": "boolean",
