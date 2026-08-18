@@ -466,10 +466,45 @@ function setupConceptRefPanel() {
 
 
 // =====================================================================
+//  6b. ATHENA VOCABULARY SEARCH
+//  Wires the right-panel search box + button to open the Athena OHDSI
+//  vocabulary browser (https://athena.ohdsi.org) in a new tab with the
+//  typed query pre-filled.  Athena is the authoritative concept lookup;
+//  we deep-link to it instead of embedding the full vocabulary.
+// =====================================================================
+
+/** Open Athena search for a given term in a new browser tab. */
+function openAthenaSearch(term) {
+  var base = "https://athena.ohdsi.org/search-terms/terms";
+  var q = String(term || "").trim();
+  var url = q ? (base + "?query=" + encodeURIComponent(q)) : "https://athena.ohdsi.org/search-terms/start";
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/** Wire the Athena search input + button in the right panel. */
+function setupAthenaSearch() {
+  var input = document.getElementById("athenaSearchInput");
+  var btn = document.getElementById("athenaSearchBtn");
+  if (btn) {
+    btn.addEventListener("click", function () {
+      openAthenaSearch(input ? input.value : "");
+    });
+  }
+  if (input) {
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        openAthenaSearch(input.value);
+      }
+    });
+  }
+}
+
+
+// =====================================================================
 //  7. RIGHT PANEL TOGGLE
 //  The header bar has a button to show/hide the right concept panel.
 // =====================================================================
-
 /**
  * Wire the header toggle button to show/hide the right sidebar.
  */
@@ -612,6 +647,7 @@ setTimeout(function () {
   setupEvidenceBlocks();         // 5. Evidence block forms (entry, outcome, exclusions, confounders)
   setupExampleActions();         // 6. Example buttons
   setupConceptRefPanel();        // 7. Concept ID reference (right sidebar)
+  setupAthenaSearch();           // 7b. Athena vocabulary search (right sidebar)
   setupRightPanelToggle();       // 8. Header toggle for right panel
   applyCovariatePreset();        // 9. Apply default preset (clinical_baseline)
   attachAutoSelfCheck();         // 10. Live validation on all inputs

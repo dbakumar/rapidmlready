@@ -302,6 +302,11 @@ function normalizeConfig(raw) {
     baselineDays: String(raw.baselineDays || "365"),
     outcomeDays: String(raw.outcomeDays || "365"),
 
+    // ELIGIBILITY & CENSORING
+    minAgeAtEntry: (raw.minAgeAtEntry !== undefined && String(raw.minAgeAtEntry).trim() !== "") ? String(raw.minAgeAtEntry).trim() : "",
+    maxAgeAtEntry: (raw.maxAgeAtEntry !== undefined && String(raw.maxAgeAtEntry).trim() !== "") ? String(raw.maxAgeAtEntry).trim() : "",
+    deathCensoring: !!raw.deathCensoring,
+
     // OPTIONS
     debug: !!raw.debug,
     bestPracticeMode: !!raw.bestPracticeMode,
@@ -363,6 +368,9 @@ function getFormConfig() {
     endYear: document.getElementById("endYear").value,
     baselineDays: document.getElementById("baselineDays").value,
     outcomeDays: document.getElementById("outcomeDays").value,
+    minAgeAtEntry: document.getElementById("minAgeAtEntry") ? document.getElementById("minAgeAtEntry").value : "",
+    maxAgeAtEntry: document.getElementById("maxAgeAtEntry") ? document.getElementById("maxAgeAtEntry").value : "",
+    deathCensoring: document.getElementById("deathCensoring") ? document.getElementById("deathCensoring").checked : false,
     debug: document.getElementById("debugMode").checked,
     methodology: document.getElementById("methodology") ? document.getElementById("methodology").value : "longitudinal-prediction",
     analysisTemplate: document.getElementById("analysisTemplate") ? document.getElementById("analysisTemplate").value : "logistic-regression",
@@ -430,6 +438,19 @@ function validateConfig(config) {
   }
   if (parseInt(config.outcomeDays, 10) <= 0) {
     errors.push("Outcome window (days) must be positive.");
+  }
+
+  // Age-at-entry gate (optional, but if provided must be valid)
+  var minAge = config.minAgeAtEntry !== "" ? parseInt(config.minAgeAtEntry, 10) : null;
+  var maxAge = config.maxAgeAtEntry !== "" ? parseInt(config.maxAgeAtEntry, 10) : null;
+  if (config.minAgeAtEntry !== "" && (isNaN(minAge) || minAge < 0)) {
+    errors.push("Minimum age at entry must be a non-negative number.");
+  }
+  if (config.maxAgeAtEntry !== "" && (isNaN(maxAge) || maxAge < 0)) {
+    errors.push("Maximum age at entry must be a non-negative number.");
+  }
+  if (minAge !== null && maxAge !== null && !isNaN(minAge) && !isNaN(maxAge) && minAge > maxAge) {
+    errors.push("Minimum age at entry cannot be greater than maximum age at entry.");
   }
 
   // Evidence block validation

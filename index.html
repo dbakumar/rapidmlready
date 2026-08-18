@@ -276,6 +276,29 @@
             </div>
           </div>
 
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Minimum Age at Entry (years)</label>
+              <input id="minAgeAtEntry" type="number" min="0" placeholder="e.g. 18" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm"/>
+              <p class="text-xs text-slate-400 mt-1">Only include patients at least this age at cohort entry (t0). Leave blank for no minimum.</p>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Maximum Age at Entry (years)</label>
+              <input id="maxAgeAtEntry" type="number" min="0" placeholder="e.g. 90" class="form-input border border-slate-300 p-2.5 w-full rounded-md text-sm"/>
+              <p class="text-xs text-slate-400 mt-1">Only include patients at most this age at cohort entry (t0). Leave blank for no maximum.</p>
+            </div>
+          </div>
+
+          <div class="space-y-3 bg-slate-50 border border-slate-200 rounded-md p-4">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" id="deathCensoring" class="mt-0.5 w-4 h-4 border-slate-300 rounded"/>
+              <div>
+                <span class="text-sm font-semibold text-slate-700">Death Censoring</span>
+                <p class="text-xs text-slate-400 mt-0.5">Drop rows where the patient died before the outcome window ends (outcome could not be fully observed)</p>
+              </div>
+            </label>
+          </div>
+
           <div class="space-y-3 bg-slate-50 border border-slate-200 rounded-md p-4">
             <label class="flex items-start gap-3 cursor-pointer">
               <input type="checkbox" id="debugMode" class="mt-0.5 w-4 h-4 border-slate-300 rounded"/>
@@ -492,10 +515,15 @@
       <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
         <h3 class="text-sm font-bold text-slate-700">OMOP Concept Reference</h3>
         <p class="text-[10px] text-slate-400 mt-0.5">Click any concept ID to copy</p>
+        <div class="mt-2 flex gap-1">
+          <input id="athenaSearchInput" type="text" placeholder="Search Athena vocab…" class="form-input border border-slate-300 p-1.5 w-full rounded text-xs" title="Type a term (e.g. metformin, eGFR, oral route) and press Enter to search Athena OHDSI"/>
+          <button id="athenaSearchBtn" type="button" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap">Go ↗</button>
+        </div>
+        <a id="athenaOpenLink" href="https://athena.ohdsi.org/search-terms/start" target="_blank" rel="noopener noreferrer" class="block text-[10px] text-blue-600 hover:underline mt-1.5">Open Athena OHDSI vocabulary browser ↗</a>
       </div>
       <div id="conceptRefPanel" class="flex-1 overflow-y-auto px-4 py-3">
         <div id="conceptRefContent" class="space-y-3 text-sm"></div>
-        <p class="text-[10px] text-slate-400 mt-4 italic">Check your local OMOP CDM for exact IDs in your environment.</p>
+        <p class="text-[10px] text-slate-400 mt-4 italic">These are common examples. Use the Athena search above to find the exact concept IDs for your OMOP CDM.</p>
       </div>
     </aside>
 
@@ -507,34 +535,34 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
     <!-- Core engine (generic, data-model-independent) -->
-    <script src="core/generator.js?v=18"></script>
-    <script src="core/dialects.js?v=18"></script>
-    <script src="core/evidence-ui.js?v=18"></script>
+    <script src="core/generator.js?v=19"></script>
+    <script src="core/dialects.js?v=19"></script>
+    <script src="core/evidence-ui.js?v=19"></script>
 
     <!-- OMOP data model (concepts, covariates, censoring, compiler) -->
-    <script src="omop/concepts.js?v=18"></script>
-    <script src="omop/covariates.js?v=18"></script>
-    <script src="omop/censoring.js?v=18"></script>
-    <script src="omop/artifacts.js?v=18"></script>
+    <script src="omop/concepts.js?v=19"></script>
+    <script src="omop/covariates.js?v=19"></script>
+    <script src="omop/censoring.js?v=19"></script>
+    <script src="omop/artifacts.js?v=19"></script>
 
     <!-- OMOP compiler (after all OMOP modules loaded) -->
-    <script src="omop/compiler.js?v=18"></script>
+    <script src="omop/compiler.js?v=19"></script>
 
     <!-- OMOP evidence adapter (after compiler + adapter-registry) -->
-    <script src="omop/evidence-sql.js?v=18"></script>
+    <script src="omop/evidence-sql.js?v=19"></script>
 
     <!-- Methodologies -->
-    <script src="methodologies/longitudinal-prediction.js?v=18"></script>
-    <script src="methodologies/single-window.js?v=18"></script>
+    <script src="methodologies/longitudinal-prediction.js?v=19"></script>
+    <script src="methodologies/single-window.js?v=19"></script>
 
     <!-- Analysis templates -->
-    <script src="templates/logistic-regression.js?v=18"></script>
-    <script src="templates/decision-tree.js?v=18"></script>
+    <script src="templates/logistic-regression.js?v=19"></script>
+    <script src="templates/decision-tree.js?v=19"></script>
 
     <!-- Plain-language HTML study explainer generator -->
-    <script src="core/study-explainer.js?v=18"></script>
+    <script src="core/study-explainer.js?v=19"></script>
 
     <!-- Wizard UI controller (must be last - depends on everything above) -->
-    <script src="core/wizard-ui.js?v=18"></script>
+    <script src="core/wizard-ui.js?v=19"></script>
 </body>
 </html>

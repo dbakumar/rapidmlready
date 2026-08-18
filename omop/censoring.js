@@ -39,7 +39,7 @@
     // Use EXISTS for observation_period instead of JOIN to prevent
     // row duplication when a patient has multiple overlapping
     // observation_period records covering the same time window.
-    return [
+    var clauses = [
       "(o.outcome_date IS NULL OR s.outcome_start <= o.outcome_date)",
       "EXISTS (\n" +
       "      SELECT 1 FROM " + config.schema + ".observation_period op\n" +
@@ -48,7 +48,42 @@
       "        AND s.outcome_end <= op.observation_period_end_date\n" +
       "    )",
       "s.outcome_end <= " + studyEnd
-    ].join("\n    AND ");
+    ];
+
+    // Age-at-entry gate — age computed at cohort entry date (t0).
+    var ageExpr = (db === "sqlserver")
+      ? "DATEDIFF(YEAR, DATEFROMPARTS(p.year_of_birth, 1, 1), s.t0)"
+      : "(EXTRACT(YEAR FROM s.t0)::INT - p.year_of_birth)";
+    var minAge = (config.minAgeAtEntry !== undefined && String(config.minAgeAtEntry).trim() !== "")
+      ? parseInt(config.minAgeAtEntry, 10) : null;
+    var maxAge = (config.maxAgeAtEntry !== undefined && String(config.maxAgeAtEntry).trim() !== "")
+      ? parseInt(config.maxAgeAtEntry, 10) : null;
+    if ((minAge !== null && !isNaN(minAge)) || (maxAge !== null && !isNaN(maxAge))) {
+      var ageConds = [];
+      if (minAge !== null && !isNaN(minAge)) ageConds.push(ageExpr + " >= " + minAge);
+      if (maxAge !== null && !isNaN(maxAge)) ageConds.push(ageExpr + " <= " + maxAge);
+      clauses.push(
+        "EXISTS (\n" +
+        "      SELECT 1 FROM " + config.schema + ".person p\n" +
+        "      WHERE p.person_id = s.person_id\n" +
+        "        AND " + ageConds.join("\n        AND ") + "\n" +
+        "    )"
+      );
+    }
+
+    // Death censoring — drop rows where the patient died before the
+    // outcome window ends (outcome could not be fully observed).
+    if (config.deathCensoring) {
+      clauses.push(
+        "NOT EXISTS (\n" +
+        "      SELECT 1 FROM " + config.schema + ".death de\n" +
+        "      WHERE de.person_id = s.person_id\n" +
+        "        AND de.death_date < s.outcome_end\n" +
+        "    )"
+      );
+    }
+
+    return clauses.join("\n    AND ");
   }
 
   RapidML.Compiler.Censoring = {
