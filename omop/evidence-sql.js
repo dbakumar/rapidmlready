@@ -145,6 +145,17 @@
     return [];
   }
 
+  /** Build an "col IN (id, id, ...)" predicate from a comma list of numeric IDs. */
+  function attributeIdFilter(column, rawList) {
+    if (!Array.isArray(rawList)) return null;
+    var ids = unique(rawList
+      .map(function (v) { return String(v).replace(/[^0-9]/g, ""); })
+      .filter(function (v) { return v !== ""; }));
+    if (!ids.length) return null;
+    if (ids.length === 1) return column + " = " + ids[0];
+    return column + " IN (" + ids.join(", ") + ")";
+  }
+
   function rowMinCount(row) {
     var minCount = parseInt(row && row.minCount, 10) || 1;
     return minCount > 1 ? minCount : 1;
@@ -172,7 +183,6 @@
     var spec = getConceptSpec(row);
     var method = normalizeCodingMethod(row);
     var clauses = [];
-
     // Source-value mode: literal match only.
     if (method === "source_value") {
       if (spec.sourceCodes.length > 0 && sourceValueColumn) {
@@ -313,6 +323,8 @@
         rowVisitJoinClause(row, config.schema, "co", "condition_start_date", "visit_occurrence_id", "v_" + prefix),
         "WHERE " + buildConceptFilter(config, row, prefix, "co.condition_concept_id", "co.condition_source_concept_id", "co.condition_source_value")
       ];
+      var dxTypeFilter = attributeIdFilter("co.condition_type_concept_id", row.conditionTypeIds);
+      if (dxTypeFilter) diagnosisLines.push("  AND " + dxTypeFilter);
       return sqlLines(addWindowFilters(diagnosisLines, "co.person_id", "co.condition_start_date"));
     }
 
@@ -340,6 +352,10 @@
         drugJoin,
         "WHERE " + buildConceptFilter(config, row, prefix, "de.drug_concept_id", "de.drug_source_concept_id", "de.drug_source_value")
       ];
+      var routeFilter = attributeIdFilter("de.route_concept_id", row.drugRouteIds);
+      if (routeFilter) drugLines.push("  AND " + routeFilter);
+      var drugTypeFilter = attributeIdFilter("de.drug_type_concept_id", row.drugTypeIds);
+      if (drugTypeFilter) drugLines.push("  AND " + drugTypeFilter);
       return sqlLines(addWindowFilters(drugLines, "de.person_id", "de.drug_exposure_start_date"));
     }
 

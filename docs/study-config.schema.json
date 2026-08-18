@@ -58,6 +58,21 @@
       "description": "Days to look back before the index date for baseline feature computation. Must parse to a positive integer.",
       "examples": ["365", "730"]
     },
+    "minAgeAtEntry": {
+      "type": "string",
+      "description": "Optional minimum age (years) at cohort entry (t0). Empty string means no minimum. Applied as an EXISTS person predicate in the censoring WHERE clause.",
+      "examples": ["", "18"]
+    },
+    "maxAgeAtEntry": {
+      "type": "string",
+      "description": "Optional maximum age (years) at cohort entry (t0). Empty string means no maximum.",
+      "examples": ["", "90"]
+    },
+    "deathCensoring": {
+      "type": "boolean",
+      "description": "When true, drop spine rows where the patient died (death table) before the outcome window ends, since the outcome could not be fully observed.",
+      "default": false
+    },
     "outcomeDays": {
       "type": "string",
       "description": "Days to look forward after the index date for outcome observation. Must parse to a positive integer.",
@@ -251,6 +266,21 @@
         "visitContextIds": {
           "type": "array",
           "description": "Custom visit_concept_id values when visitContext is 'custom'.",
+          "items": { "type": "string" }
+        },
+        "conditionTypeIds": {
+          "type": "array",
+          "description": "Diagnosis rows only. Optional list of condition_type_concept_id values (comma-separated in the UI) that restrict which diagnosis provenance is counted (e.g. EHR encounter diagnosis vs problem list).",
+          "items": { "type": "string" }
+        },
+        "drugRouteIds": {
+          "type": "array",
+          "description": "Drug rows only. Optional list of route_concept_id values to restrict by administration route (e.g. exclude topical).",
+          "items": { "type": "string" }
+        },
+        "drugTypeIds": {
+          "type": "array",
+          "description": "Drug rows only. Optional list of drug_type_concept_id values to restrict by order/exposure provenance (e.g. prescription written vs inpatient administration).",
           "items": { "type": "string" }
         }
       }

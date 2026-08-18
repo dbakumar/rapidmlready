@@ -100,6 +100,13 @@
       .filter(Boolean);
   }
 
+  function parseIdList(value) {
+    return String(value || "")
+      .split(/[\s,;|]+/)
+      .map(function (token) { return token.trim(); })
+      .filter(Boolean);
+  }
+
   // ── Render a single evidence row ──────────────────────────────
 
   function createRowElement(blockId, defaults) {
@@ -138,7 +145,7 @@
 
       '<div class="w-32">',
       '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Coding Method</label>',
-      '  <select class="ev-coding-method form-input border border-slate-300 p-1.5 w-full rounded text-xs">',
+      '  <select class="ev-coding-method form-input border border-slate-300 p-1.5 w-full rounded text-xs" title="How to interpret the values you type. OMOP Concept ID = numeric standard IDs (e.g. 201826). ICD-10 / RxNorm / LOINC / SNOMED = source codes mapped via the OMOP vocabulary. Raw Source Value = literal match on *_source_value.">',
       CODING_METHOD_OPTIONS.map(function(o) {
           var sel = o.value === (defaults.codingMethod || "concept_id") ? " selected" : "";
           return '      <option value="' + o.value + '"' + sel + '>' + o.label + '</option>';
@@ -147,8 +154,8 @@
       '</div>',
 
       '<div class="w-40">',
-      '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Code Values</label>',
-      '  <input type="text" class="ev-concept form-input border border-slate-300 p-1.5 w-full rounded text-xs" placeholder="e.g. 201826, E11.9" value="' + conceptInputValue + '" title="Enter one or more values separated by comma or space"/>',
+      '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Code Values <a href="https://athena.ohdsi.org/search-terms/start" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline" title="Look up concept IDs on Athena OHDSI">Athena \u2197</a></label>',
+      '  <input type="text" class="ev-concept form-input border border-slate-300 p-1.5 w-full rounded text-xs" placeholder="e.g. 201826, E11.9" value="' + conceptInputValue + '" title="Enter one or more values, comma or space separated. Examples: Concept ID 201826 = Type 2 Diabetes; 443767 = Diabetic Nephropathy; 3004410 = HbA1c; 1545999 = Metformin. For code lists use ICD-10 (E11.9) or RxNorm and set the Coding Method. Use the Athena link to look up IDs."/>',
       '</div>',
 
       '<div class="ev-visit-ctx-field" style="' + visitCtxDisplay + '">',
@@ -199,6 +206,22 @@
       '  <input type="number" class="ev-min-spacing form-input border border-slate-300 p-1.5 w-full rounded text-xs" min="0" step="1" placeholder="0" value="' + (defaults.minSpacingDays > 0 ? defaults.minSpacingDays : "") + '" title="Require events to be at least N days apart (e.g. 30)"/>',
       '</div>',
 
+      '<div class="ev-dxtype-field w-28" style="' + (type === "diagnosis" ? "" : "display:none;") + '">',
+      '  <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Dx Type IDs <a href="https://athena.ohdsi.org/search-terms/terms?query=condition%20type" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline" title="Look up condition_type_concept_id values on Athena">\u2197</a></label>',
+      '  <input type="text" class="ev-dxtype-ids form-input border border-slate-300 p-1.5 w-full rounded text-xs" placeholder="e.g. 32020" value="' + (defaults.conditionTypeIds || "") + '" title="Comma-separated condition_type_concept_id values (diagnosis provenance). Example: 32020 = EHR encounter diagnosis. Leave blank for any type. Use the Athena link to find more."/>',
+      '</div>',
+
+      '<div class="ev-drug-attr-field flex gap-2" style="' + (type === "drug" ? "" : "display:none;") + '">',
+      '  <div class="w-24">',
+      '    <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Route IDs <a href="https://athena.ohdsi.org/search-terms/terms?query=route" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline" title="Look up route_concept_id values on Athena">\u2197</a></label>',
+      '    <input type="text" class="ev-drug-route-ids form-input border border-slate-300 p-1.5 w-full rounded text-xs" placeholder="e.g. 4132161" value="' + (defaults.drugRouteIds || "") + '" title="Comma-separated route_concept_id values. Examples: 4132161 = Oral, 4263689 = Topical. Leave blank for any route. Use the Athena link to find more."/>',
+      '  </div>',
+      '  <div class="w-24">',
+      '    <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Order/Type IDs <a href="https://athena.ohdsi.org/search-terms/terms?query=drug%20type" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline" title="Look up drug_type_concept_id values on Athena">\u2197</a></label>',
+      '    <input type="text" class="ev-drug-type-ids form-input border border-slate-300 p-1.5 w-full rounded text-xs" placeholder="e.g. 38000177" value="' + (defaults.drugTypeIds || "") + '" title="Comma-separated drug_type_concept_id values (order/exposure provenance). Examples: 38000177 = Prescription written, 38000175 = Prescription dispensed in pharmacy. Leave blank for any. Use the Athena link to find more."/>',
+      '  </div>',
+      '</div>',
+
       '<div class="ev-dv-field flex items-center gap-1" style="' + dvDisplay + '">',
       '  <label class="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer mt-4">',
       '    <input type="checkbox" class="ev-distinct-visits w-3 h-3 rounded"' + (defaults.distinctVisits ? " checked" : "") + '/>',
@@ -219,6 +242,8 @@
     var labFields = row.querySelector(".ev-lab-fields");
     var descField = row.querySelector(".ev-desc-field");
     var dvField = row.querySelector(".ev-dv-field");
+    var dxTypeField = row.querySelector(".ev-dxtype-field");
+    var drugAttrField = row.querySelector(".ev-drug-attr-field");
     var visitCtxField = row.querySelector(".ev-visit-ctx-field");
     var visitCtxSelect = row.querySelector(".ev-visit-ctx");
     var visitCtxIds = row.querySelector(".ev-visit-ctx-ids");
@@ -233,6 +258,8 @@
       descField.style.display    = showDesc  ? "" : "none";
       dvField.style.display      = showDV    ? "" : "none";
       visitCtxField.style.display = showVC   ? "" : "none";
+      if (dxTypeField)   dxTypeField.style.display   = (t === "diagnosis") ? "" : "none";
+      if (drugAttrField) drugAttrField.style.display = (t === "drug") ? "" : "none";
     });
 
     // Wire visit context dropdown → show/hide custom IDs input
@@ -340,6 +367,13 @@
         ? visitCtxIdsEl.value.split(",").map(function(s) { return s.trim(); }).filter(Boolean)
         : [];
 
+      var conditionTypeIds = (type === "diagnosis" && el.querySelector(".ev-dxtype-ids"))
+        ? parseIdList(el.querySelector(".ev-dxtype-ids").value) : [];
+      var drugRouteIds = (type === "drug" && el.querySelector(".ev-drug-route-ids"))
+        ? parseIdList(el.querySelector(".ev-drug-route-ids").value) : [];
+      var drugTypeIds = (type === "drug" && el.querySelector(".ev-drug-type-ids"))
+        ? parseIdList(el.querySelector(".ev-drug-type-ids").value) : [];
+
       if (conceptTokens.length > 0) {
         var hasValue = (type === "lab" || type === "observation");
         var hasDesc  = (type !== "lab" && type !== "visit");
@@ -358,7 +392,10 @@
           minSpacingDays: minSpacingDays,
           distinctVisits: hasDV ? distinctVisits : false,
           visitContext: hasVC ? visitContextMode : "all",
-          visitContextIds: (hasVC && visitContextMode === "custom") ? visitContextIds : []
+          visitContextIds: (hasVC && visitContextMode === "custom") ? visitContextIds : [],
+          conditionTypeIds: conditionTypeIds,
+          drugRouteIds: drugRouteIds,
+          drugTypeIds: drugTypeIds
         });
       }
     });
@@ -395,6 +432,13 @@
         ? visitCtxIdsEl2.value.split(",").map(function(s) { return s.trim(); }).filter(Boolean)
         : [];
 
+      var conditionTypeIds2 = (type === "diagnosis" && el.querySelector(".ev-dxtype-ids"))
+        ? parseIdList(el.querySelector(".ev-dxtype-ids").value) : [];
+      var drugRouteIds2 = (type === "drug" && el.querySelector(".ev-drug-route-ids"))
+        ? parseIdList(el.querySelector(".ev-drug-route-ids").value) : [];
+      var drugTypeIds2 = (type === "drug" && el.querySelector(".ev-drug-type-ids"))
+        ? parseIdList(el.querySelector(".ev-drug-type-ids").value) : [];
+
       if (conceptTokens.length > 0) {
         var hasValue = (type === "lab" || type === "observation");
         var hasDesc  = (type !== "lab" && type !== "visit");
@@ -413,7 +457,10 @@
           minSpacingDays: minSpacingDays,
           distinctVisits: hasDV ? distinctVisits : false,
           visitContext: hasVC ? visitContextMode2 : "all",
-          visitContextIds: (hasVC && visitContextMode2 === "custom") ? visitContextIds2 : []
+          visitContextIds: (hasVC && visitContextMode2 === "custom") ? visitContextIds2 : [],
+          conditionTypeIds: conditionTypeIds2,
+          drugRouteIds: drugRouteIds2,
+          drugTypeIds: drugTypeIds2
         });
       }
     });
