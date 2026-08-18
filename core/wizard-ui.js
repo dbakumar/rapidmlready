@@ -356,9 +356,11 @@ function setupCustomCovariates() {
 //  section.  Uses RapidML.EvidenceUI to render blocks.
 // =====================================================================
 
-/** Handles returned from renderBlock — used by example buttons */
+/** Handles returned from renderBlock — used by the worked example loader */
 var _entryBlockHandle = null;
 var _outcomeBlockHandle = null;
+var _exclusionsBlockHandle = null;
+var _confoundersBlockHandle = null;
 
 /**
  * Initialize all four evidence block containers.
@@ -379,13 +381,13 @@ function setupEvidenceBlocks() {
     showLabel: false
   });
 
-  RapidML.EvidenceUI.renderBlock("exclusionsBlock", {
+  _exclusionsBlockHandle = RapidML.EvidenceUI.renderBlock("exclusionsBlock", {
     label: "Exclusion",
     showMatch: false,
     showLabel: true
   });
 
-  RapidML.EvidenceUI.renderBlock("confoundersBlock", {
+  _confoundersBlockHandle = RapidML.EvidenceUI.renderBlock("confoundersBlock", {
     label: "Confounder",
     showMatch: false,
     showLabel: true
@@ -404,20 +406,18 @@ function setupEvidenceBlocks() {
 // =====================================================================
 
 /**
- * Attach click handlers to example buttons.
+ * Attach click handler to the worked-example loader.
  */
 function setupExampleActions() {
-  var diabetesBtn = document.getElementById("applyExampleDiabetesBtn");
-  var diabetesLabBtn = document.getElementById("applyExampleDiabetesLabBtn");
-
-  if (diabetesBtn) {
-    diabetesBtn.addEventListener("click", function () {
-      RapidML.EvidenceUI.applyDiabetesExample(_entryBlockHandle, _outcomeBlockHandle);
-    });
-  }
-  if (diabetesLabBtn) {
-    diabetesLabBtn.addEventListener("click", function () {
-      RapidML.EvidenceUI.applyDiabetesLabExample(_entryBlockHandle, _outcomeBlockHandle);
+  var fairviewBtn = document.getElementById("applyFairviewExampleBtn");
+  if (fairviewBtn) {
+    fairviewBtn.addEventListener("click", function () {
+      RapidML.EvidenceUI.applyFairviewExample(
+        _entryBlockHandle,
+        _outcomeBlockHandle,
+        _exclusionsBlockHandle,
+        _confoundersBlockHandle
+      );
     });
   }
 }

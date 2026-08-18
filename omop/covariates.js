@@ -103,24 +103,60 @@
 
   function priorOutcomeExpr(config) {
     var outcomeRows = (config.study && config.study.outcome && config.study.outcome.rows) || [];
-    if (!outcomeRows.length) return "0 AS prior_outcome_history";
 
-    // The Step 10 WITH clause already declares outcome_r0_concepts, outcome_r1_concepts, ...
-    // (one per outcome row, handling descendants when applicable).
-    // Build a UNION subquery so prior_outcome_history works for any number of outcome rows.
-    var unionParts = outcomeRows.map(function (_, i) {
-      return "SELECT concept_id FROM outcome_r" + i + "_concepts";
+    // "Prior outcome history" = did the person have the outcome CONDITION before
+    // this spine row's outcome window began?  This is only well-defined for
+    // condition-domain outcome rows; lab/measurement-defined outcomes (e.g.
+    // eGFR < 60) do not map to a single condition concept set, so we skip them.
+    //
+    // NOTE: we resolve concept ids inline here (via concept_ancestor when
+    // descendants are requested) rather than referencing the outcome_r*_concepts
+    // CTEs, because those CTEs only exist for diagnosis rows with descendants —
+    // referencing them for lab rows would produce invalid SQL.
+    var conditionPreds = [];
+    outcomeRows.forEach(function (row) {
+      if (!row || row.type !== "diagnosis") return;
+
+      var ids = [];
+      if (Array.isArray(row.conceptIds)) ids = ids.concat(row.conceptIds);
+      if (row.conceptId) ids.push(row.conceptId);
+      ids = ids
+        .map(function (v) { return String(v).replace(/[^0-9]/g, ""); })
+        .filter(function (v) { return v !== ""; });
+      // De-duplicate while preserving order.
+      var seen = {};
+      ids = ids.filter(function (v) { if (seen[v]) return false; seen[v] = true; return true; });
+      if (!ids.length) return; // skip source-code (e.g. ICD) outcome rows
+
+      if (row.descendants) {
+        conditionPreds.push(
+          "co.condition_concept_id IN (SELECT descendant_concept_id FROM " + config.schema +
+          ".concept_ancestor WHERE ancestor_concept_id IN (" + ids.join(", ") + "))"
+        );
+      } else if (ids.length === 1) {
+        conditionPreds.push("co.condition_concept_id = " + ids[0]);
+      } else {
+        conditionPreds.push("co.condition_concept_id IN (" + ids.join(", ") + ")");
+      }
     });
-    var conceptSubq = unionParts.length === 1
-      ? unionParts[0]
-      : unionParts.join(" UNION ALL ");
 
-    return "CASE WHEN EXISTS (" +
-      "SELECT 1 FROM " + config.schema + ".condition_occurrence co " +
-      "WHERE co.person_id = s.person_id " +
-      "AND co.condition_concept_id IN (" + conceptSubq + ") " +
-      "AND co.condition_start_date < s.outcome_start" +
-      ") THEN 1 ELSE 0 END AS prior_outcome_history";
+    if (!conditionPreds.length) {
+      return "0 AS prior_outcome_history  -- no condition-based outcome rows to derive prior history from";
+    }
+
+    var conceptPred = conditionPreds.length === 1
+      ? conditionPreds[0]
+      : "(" + conditionPreds.join("\n           OR ") + ")";
+
+    return sqlLines([
+      "CASE WHEN EXISTS (",
+      "    -- Any occurrence of the outcome condition strictly BEFORE this row's outcome window starts.",
+      "    SELECT 1 FROM " + config.schema + ".condition_occurrence co",
+      "    WHERE co.person_id = s.person_id",
+      "      AND " + conceptPred,
+      "      AND co.condition_start_date < s.outcome_start",
+      "  ) THEN 1 ELSE 0 END AS prior_outcome_history"
+    ]);
   }
 
   function lastLabValueExpr(config, labConceptId, labName) {

@@ -201,26 +201,50 @@
       return clauses.length === 1 ? clauses[0] : "(" + clauses.join(" OR ") + ")";
     }
 
-    // Code-system mode (ICD/LOINC/RxNorm/SNOMED): map via OMOP concept vocabulary + source columns.
+    // Code-system mode (ICD / RxNorm / LOINC / SNOMED): map entered codes to
+    // OMOP concept_ids via the concept table.  The column we match depends on
+    // whether the vocabulary is a STANDARD or a SOURCE vocabulary:
+    //   - Standard (RxNorm, LOINC, SNOMED) -> populate the standard *_concept_id
+    //     column directly, so we match that column (with concept_ancestor rollup
+    //     when "include descendants" is on).
+    //   - Source / non-standard (ICD-10, ICD-9) -> stored in the *_source_concept_id
+    //     column (and often the *_source_value text), so we match those instead.
     if (method !== "concept_id") {
+      var STANDARD_METHODS = { rxnorm: true, loinc: true, snomed: true };
       var vocabIds = vocabularyIdsForMethod(method);
       var allCodes = unique(spec.numericIds.concat(spec.sourceCodes));
-      var vocabFilter = vocabIds.length
-        ? " AND c.vocabulary_id IN (" + vocabIds.map(quoteSqlString).join(", ") + ")"
-        : "";
-
-      if (allCodes.length > 0 && sourceConceptColumn) {
-        clauses.push(sourceConceptColumn + " IN (" +
-          "SELECT c.concept_id FROM " + config.schema + ".concept c " +
-          "WHERE UPPER(c.concept_code) IN (" + allCodes.map(function(code) {
-            return quoteSqlString(String(code).toUpperCase());
-          }).join(", ") + ")" + vocabFilter +
-        ")");
+      if (allCodes.length === 0) {
+        return conceptColumn + " = 0";
       }
-      if (allCodes.length > 0 && sourceValueColumn) {
-        clauses.push("UPPER(" + sourceValueColumn + ") IN (" + allCodes.map(function(code) {
-          return quoteSqlString(String(code).toUpperCase());
-        }).join(", ") + ")");
+
+      var codeList = allCodes.map(function (code) {
+        return quoteSqlString(String(code).toUpperCase());
+      }).join(", ");
+      var vocabFilter = vocabIds.length
+        ? " AND vocab.vocabulary_id IN (" + vocabIds.map(quoteSqlString).join(", ") + ")"
+        : "";
+      // Sub-select that resolves the typed codes to their OMOP concept_ids.
+      var conceptLookup =
+        "SELECT vocab.concept_id FROM " + config.schema + ".concept vocab " +
+        "WHERE UPPER(vocab.concept_code) IN (" + codeList + ")" + vocabFilter;
+
+      if (STANDARD_METHODS[method]) {
+        if (row.descendants && row.type !== "lab" && row.type !== "visit") {
+          // Roll up to every descendant (e.g. RxNorm ingredient -> all its drugs).
+          clauses.push(conceptColumn + " IN (" +
+            "SELECT anc.descendant_concept_id FROM " + config.schema + ".concept_ancestor anc " +
+            "WHERE anc.ancestor_concept_id IN (" + conceptLookup + "))");
+        } else {
+          clauses.push(conceptColumn + " IN (" + conceptLookup + ")");
+        }
+      } else {
+        // Source vocabularies live in the *_source_concept_id / *_source_value columns.
+        if (sourceConceptColumn) {
+          clauses.push(sourceConceptColumn + " IN (" + conceptLookup + ")");
+        }
+        if (sourceValueColumn) {
+          clauses.push("UPPER(" + sourceValueColumn + ") IN (" + codeList + ")");
+        }
       }
 
       if (clauses.length === 0) {
@@ -308,19 +332,39 @@
 
   // ── Per-row event subquery (finds person_id, MIN date) ─────────
 
+  /** Short human-readable description of a row, used as an inline SQL comment. */
+  function describeRowForComment(row) {
+    var method = normalizeCodingMethod(row);
+    var codeDesc = method === "concept_id" ? "OMOP concept id(s)" : (method.toUpperCase() + " code(s)");
+    var parts = ["Find " + row.type + " events matching " + codeDesc];
+    if (row.descendants && row.type !== "lab" && row.type !== "visit") parts.push("incl. descendants");
+    if ((row.type === "lab" || row.type === "observation") && row.operator && row.value) {
+      parts.push("with value " + safeOperator(row.operator) + " " + safeNumericValue(row.value));
+    }
+    if (row.visitContext && row.visitContext !== "all") parts.push("in " + row.visitContext + " visits");
+    return parts.join(", ") + ".";
+  }
+
   function buildRowEventBaseQuery(config, row, prefix, windowSpec) {
     function addWindowFilters(lines, personExpr, dateExpr) {
       if (!windowSpec) return lines;
+      lines.push("  -- Restrict to events inside this spine row's window.");
       lines.push("  AND " + personExpr + " = " + windowSpec.pAlias + ".person_id");
       lines.push("  AND " + dateExpr + " BETWEEN " + windowSpec.pAlias + "." + windowSpec.startCol + " AND " + windowSpec.pAlias + "." + windowSpec.endCol);
       return lines;
     }
 
+    var rowComment = "-- " + describeRowForComment(row);
+
     if (row.type === "diagnosis") {
+      var diagnosisVisitJoin = (row.visitContext && row.visitContext !== "all")
+        ? rowVisitJoinClause(row, config.schema, "co", "condition_start_date", "visit_occurrence_id", "v_" + prefix)
+        : null;
       var diagnosisLines = [
+        rowComment,
         "SELECT co.person_id AS person_id, co.condition_start_date AS event_date, co.visit_occurrence_id AS visit_occurrence_id",
         "FROM " + config.schema + ".condition_occurrence co",
-        rowVisitJoinClause(row, config.schema, "co", "condition_start_date", "visit_occurrence_id", "v_" + prefix),
+        diagnosisVisitJoin,
         "WHERE " + buildConceptFilter(config, row, prefix, "co.condition_concept_id", "co.condition_source_concept_id", "co.condition_source_value")
       ];
       var dxTypeFilter = attributeIdFilter("co.condition_type_concept_id", row.conditionTypeIds);
@@ -333,6 +377,7 @@
         ? rowVisitJoinClause(row, config.schema, "m", "measurement_date", "visit_occurrence_id", "v_" + prefix)
         : null;
       var labLines = [
+        rowComment,
         "SELECT m.person_id AS person_id, m.measurement_date AS event_date, m.visit_occurrence_id AS visit_occurrence_id",
         "FROM " + config.schema + ".measurement m",
         labJoin,
@@ -347,6 +392,7 @@
         ? rowVisitJoinClause(row, config.schema, "de", "drug_exposure_start_date", "visit_occurrence_id", "v_" + prefix)
         : null;
       var drugLines = [
+        rowComment,
         "SELECT de.person_id AS person_id, de.drug_exposure_start_date AS event_date, de.visit_occurrence_id AS visit_occurrence_id",
         "FROM " + config.schema + ".drug_exposure de",
         drugJoin,
@@ -364,6 +410,7 @@
         ? rowVisitJoinClause(row, config.schema, "po", "procedure_date", "visit_occurrence_id", "v_" + prefix)
         : null;
       var procLines = [
+        rowComment,
         "SELECT po.person_id AS person_id, po.procedure_date AS event_date, po.visit_occurrence_id AS visit_occurrence_id",
         "FROM " + config.schema + ".procedure_occurrence po",
         procJoin,
@@ -373,10 +420,14 @@
     }
 
     if (row.type === "observation") {
+      var observationVisitJoin = (row.visitContext && row.visitContext !== "all")
+        ? rowVisitJoinClause(row, config.schema, "o", "observation_date", "visit_occurrence_id", "v_" + prefix)
+        : null;
       var observationLines = [
+        rowComment,
         "SELECT o.person_id AS person_id, o.observation_date AS event_date, o.visit_occurrence_id AS visit_occurrence_id",
         "FROM " + config.schema + ".observation o",
-        rowVisitJoinClause(row, config.schema, "o", "observation_date", "visit_occurrence_id", "v_" + prefix),
+        observationVisitJoin,
         "WHERE " + buildConceptFilter(config, row, prefix, "o.observation_concept_id", "o.observation_source_concept_id", "o.observation_source_value")
       ];
       if (row.operator && row.value) {
@@ -387,6 +438,7 @@
 
     if (row.type === "visit") {
       var visitLines = [
+        rowComment,
         "SELECT vo.person_id AS person_id, vo.visit_start_date AS event_date, vo.visit_occurrence_id AS visit_occurrence_id",
         "FROM " + config.schema + ".visit_occurrence vo",
         "WHERE " + buildConceptFilter(config, row, prefix, "vo.visit_concept_id", "vo.visit_source_concept_id", "vo.visit_source_value")
@@ -403,43 +455,54 @@
     var distinctVisits = !!row.distinctVisits;
 
     if (spacingDays > 0) {
-      var diffExpr = dateDiffDaysExpr(config.db, "r.prev_event_date", "r.event_date");
-      var spacingFlag = "CASE WHEN r.prev_event_date IS NOT NULL AND " + diffExpr + " >= " + spacingDays + " THEN 1 ELSE 0 END";
+      var diffExpr = dateDiffDaysExpr(config.db, "gapped_events.prev_event_date", "gapped_events.event_date");
+      var spacingFlag = "CASE WHEN gapped_events.prev_event_date IS NOT NULL AND " + diffExpr + " >= " + spacingDays + " THEN 1 ELSE 0 END";
 
       return sqlLines([
-        "SELECT z.person_id, MIN(z.event_date) AS event_date",
+        "-- Persistence rule: keep persons with >= " + minCount + " qualifying event(s) that are",
+        "-- at least " + spacingDays + " day(s) apart (e.g. \"2 diagnoses 30+ days apart\").",
+        "-- 'spaced_count' is a running tally of how many spaced events have occurred so far.",
+        "SELECT spaced_events.person_id, MIN(spaced_events.event_date) AS event_date",
         "FROM (",
-        "  SELECT r.person_id, r.event_date,",
-        "         (1 + SUM(" + spacingFlag + ") OVER (PARTITION BY r.person_id ORDER BY r.event_date ROWS UNBOUNDED PRECEDING)) AS spaced_count",
+        "  SELECT gapped_events.person_id, gapped_events.event_date,",
+        "         (1 + SUM(" + spacingFlag + ")",
+        "              OVER (PARTITION BY gapped_events.person_id",
+        "                    ORDER BY gapped_events.event_date",
+        "                    ROWS UNBOUNDED PRECEDING)) AS spaced_count",
         "  FROM (",
-        "    SELECT b.person_id, b.event_date,",
-        "           LAG(b.event_date) OVER (PARTITION BY b.person_id ORDER BY b.event_date) AS prev_event_date",
+        "    -- Attach each event's previous event date to measure the gap between them.",
+        "    SELECT distinct_events.person_id, distinct_events.event_date,",
+        "           LAG(distinct_events.event_date) OVER (",
+        "             PARTITION BY distinct_events.person_id ORDER BY distinct_events.event_date",
+        "           ) AS prev_event_date",
         "    FROM (",
-        "      SELECT DISTINCT raw.person_id, raw.event_date" + (distinctVisits ? ", raw.visit_occurrence_id" : ""),
+        "      -- Collapse to one row per person per distinct event date.",
+        "      SELECT DISTINCT matched_events.person_id, matched_events.event_date" + (distinctVisits ? ", matched_events.visit_occurrence_id" : ""),
         "      FROM (",
         "        " + baseQuerySql,
-        "      ) raw",
-        "    ) b",
-        "  ) r",
-        ") z",
-        "GROUP BY z.person_id",
-        "HAVING MAX(z.spaced_count) >= " + minCount
+        "      ) matched_events",
+        "    ) distinct_events",
+        "  ) gapped_events",
+        ") spaced_events",
+        "GROUP BY spaced_events.person_id",
+        "HAVING MAX(spaced_events.spaced_count) >= " + minCount
       ]);
     }
 
-    var countExpr;
-    if (distinctVisits) {
-      countExpr = "COUNT(DISTINCT x.visit_occurrence_id)";
-    } else {
-      countExpr = "COUNT(*)";
-    }
+    var countExpr = distinctVisits
+      ? "COUNT(DISTINCT matched_events.visit_occurrence_id)"
+      : "COUNT(*)";
+    var countComment = distinctVisits
+      ? "-- Frequency rule: keep persons with >= " + minCount + " matching event(s) on distinct visits."
+      : "-- Frequency rule: keep persons with >= " + minCount + " matching event(s).";
 
     return sqlLines([
-      "SELECT x.person_id, MIN(x.event_date) AS event_date",
+      countComment,
+      "SELECT matched_events.person_id, MIN(matched_events.event_date) AS event_date",
       "FROM (",
       "  " + baseQuerySql,
-      ") x",
-      "GROUP BY x.person_id",
+      ") matched_events",
+      "GROUP BY matched_events.person_id",
       "HAVING " + countExpr + " >= " + minCount
     ]);
   }
@@ -460,11 +523,13 @@
     var aggQuery = buildRowEventAggQuery(config, row, baseQuery);
     return sqlLines([
       "EXISTS (",
-      "  SELECT 1",
-      "  FROM (",
-      "    " + aggQuery,
-      "  ) _win",
-      ")"
+      "    -- TRUE when the person has a qualifying " + row.type + " match inside the",
+      "    -- [" + startCol + " .. " + endCol + "] window for this spine row.",
+      "    SELECT 1",
+      "    FROM (",
+      "      " + aggQuery,
+      "    ) windowed_match",
+      "  )"
     ]);
   }
 
@@ -506,11 +571,12 @@
     // Single row — inline directly, renaming event_date to expected alias
     if (rows.length === 1) {
       return sqlLines([
-        "-- " + cteName + ": single evidence row (" + rows[0].type + ")",
+        "-- " + cteName + ": a single evidence row (" + rows[0].type + ").",
+        "-- Produces one qualifying date (" + dateCol + ") per person.",
         cteName + " AS (",
         "  SELECT person_id, event_date AS " + dateCol + " FROM (",
         "  " + buildRowEventSubquery(config, rows[0], blockPrefix + "_r0"),
-        "  ) _single",
+        "  ) single_row_match",
         ")"
       ]);
     }
@@ -521,12 +587,13 @@
         return "    SELECT person_id, event_date FROM " + blockPrefix + "_r" + i + "_events";
       });
       return sqlLines([
-        "-- " + cteName + ": ANY of " + rows.length + " evidence rows",
+        "-- " + cteName + ": ANY of " + rows.length + " evidence rows qualifies (logical OR).",
+        "-- Combine every row's qualifying persons and take their EARLIEST date as " + dateCol + ".",
         cteName + " AS (",
         "  SELECT person_id, MIN(event_date) AS " + dateCol,
         "  FROM (",
         unions.join("\n    UNION ALL\n"),
-        "  ) _any",
+        "  ) any_row_matches",
         "  GROUP BY person_id",
         ")"
       ]);
@@ -537,12 +604,14 @@
       return "    SELECT person_id, event_date, " + i + " AS row_idx FROM " + blockPrefix + "_r" + i + "_events";
     });
     return sqlLines([
-      "-- " + cteName + ": ALL of " + rows.length + " evidence rows must match",
+      "-- " + cteName + ": ALL " + rows.length + " evidence rows must qualify (logical AND).",
+      "-- A person is kept only if they appear for every distinct row_idx; the qualifying",
+      "-- date (" + dateCol + ") is the LATEST across rows (the date all criteria are first met).",
       cteName + " AS (",
       "  SELECT person_id, MAX(event_date) AS " + dateCol,
       "  FROM (",
       unions.join("\n    UNION ALL\n"),
-      "  ) _all",
+      "  ) all_row_matches",
       "  GROUP BY person_id",
       "  HAVING COUNT(DISTINCT row_idx) = " + rows.length,
       ")"

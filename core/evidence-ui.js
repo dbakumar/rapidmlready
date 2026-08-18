@@ -54,8 +54,8 @@
  *   collectBlockData(containerId)           -> { match, rows[] }
  *   collectListData(containerId)            -> rows[]
  *   collectStudyDefinition()                -> full study definition
- *   applyDiabetesExample(entry, outcome)    -> pre-fill example
- *   applyDiabetesLabExample(entry, outcome) -> pre-fill lab example
+ *   applyFairviewExample(entry, outcome,    -> pre-fill the full
+ *     exclusions, confounders)                 Fairview worked example
  * ============================================================================
  */
 (function () {
@@ -479,32 +479,37 @@
     };
   }
 
-  // ── Pre-fill with example study (diabetes → nephropathy) ──────
+  // ── Pre-fill with the Fairview-style worked example ───────────
+  //  Reproduces the Fairview AIM-AHEAD diabetic-nephropathy study:
+  //  cohort entry, composite outcome, exclusions, comorbidity +
+  //  medication confounders, covariates, and study-level censoring.
 
-  function applyDiabetesExample(entryHandle, outcomeHandle) {
-    // Clear existing rows
-    ["entryBlock", "outcomeBlock", "exclusionsBlock", "confoundersBlock"].forEach(function (id) {
-      var container = document.getElementById(id);
-      if (container) {
-        container.querySelectorAll(".evidence-row").forEach(function (row) { row.remove(); });
-      }
-    });
-
-    // Entry: Type 2 Diabetes diagnosis
-    if (entryHandle) {
-      entryHandle.addRow({ type: "diagnosis", conceptId: "201826", descendants: true });
-    }
-
-    // Outcome: Diabetic nephropathy
-    if (outcomeHandle) {
-      outcomeHandle.addRow({ type: "diagnosis", conceptId: "443767", descendants: true });
-    }
-
-    if (typeof updateSelfCheck === "function") updateSelfCheck();
+  function _exSetVal(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.value = val;
   }
 
-  function applyDiabetesLabExample(entryHandle, outcomeHandle) {
-    // Clear existing rows
+  function _exSetChecked(id, checked) {
+    var el = document.getElementById(id);
+    if (el) el.checked = !!checked;
+  }
+
+  function _exSetBlockMatch(containerId, mode) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    var sel = container.querySelector(".ev-match");
+    if (sel) sel.value = mode;
+  }
+
+  function _exSetCovariates(values) {
+    var els = document.querySelectorAll('input[name="covariates"]');
+    Array.prototype.forEach.call(els, function (el) {
+      el.checked = values.indexOf(el.value) >= 0;
+    });
+  }
+
+  function applyFairviewExample(entryHandle, outcomeHandle, exclusionsHandle, confoundersHandle) {
+    // Clear existing rows in all four blocks
     ["entryBlock", "outcomeBlock", "exclusionsBlock", "confoundersBlock"].forEach(function (id) {
       var container = document.getElementById(id);
       if (container) {
@@ -512,16 +517,105 @@
       }
     });
 
-    // Entry: T2DM diagnosis + eGFR < 60
+    // ── Study-level settings (Fairview: 2016–2024, adults 18+, death censoring) ──
+    _exSetVal("startYear", "2016");
+    _exSetVal("endYear", "2024");
+    _exSetVal("baselineDays", "365");
+    _exSetVal("outcomeDays", "730");
+    _exSetVal("minAgeAtEntry", "18");
+    _exSetVal("maxAgeAtEntry", "");
+    _exSetChecked("deathCensoring", true);
+
+    // ── Cohort entry: 2+ Type 2 Diabetes diagnoses ≥30 days apart ──
+    _exSetBlockMatch("entryBlock", "all");
     if (entryHandle) {
-      entryHandle.addRow({ type: "diagnosis", conceptId: "201826", descendants: true });
-      entryHandle.addRow({ type: "lab", conceptId: "3020460", operator: "<", value: "60" });
+      entryHandle.addRow({
+        type: "diagnosis", conceptId: "201826", conceptIds: ["201826"],
+        codingMethod: "concept_id", descendants: true,
+        minCount: 2, minSpacingDays: 30,
+        label: "Type 2 Diabetes (2+ dx, 30d apart)"
+      });
     }
 
-    // Outcome: eGFR < 30
+    // ── Outcome: diabetic nephropathy — ANY confirmed path ──
+    //  labs (2× ≥30d apart) OR 2+ nephropathy diagnoses ≥30d apart
+    _exSetBlockMatch("outcomeBlock", "any");
     if (outcomeHandle) {
-      outcomeHandle.addRow({ type: "lab", conceptId: "3020460", operator: "<", value: "30" });
+      outcomeHandle.addRow({
+        type: "lab", conceptId: "3020564", conceptIds: ["3020564"],
+        codingMethod: "concept_id", operator: ">", value: "1.4",
+        minCount: 2, minSpacingDays: 30, label: "Creatinine > 1.4 (2x, 30d)"
+      });
+      outcomeHandle.addRow({
+        type: "lab", conceptId: "3020460", conceptIds: ["3020460"],
+        codingMethod: "concept_id", operator: "<", value: "60",
+        minCount: 2, minSpacingDays: 30, label: "eGFR < 60 (2x, 30d)"
+      });
+      outcomeHandle.addRow({
+        type: "lab", conceptId: "3025214", conceptIds: ["3025214"],
+        codingMethod: "concept_id", operator: ">", value: "1.2",
+        minCount: 2, minSpacingDays: 30, label: "Cystatin C > 1.2 (2x, 30d)"
+      });
+      outcomeHandle.addRow({
+        type: "diagnosis", conceptId: "443767", conceptIds: ["443767"],
+        codingMethod: "concept_id", descendants: true,
+        minCount: 2, minSpacingDays: 30, label: "Diabetic nephropathy dx (2x, 30d)"
+      });
     }
+
+    // ── Exclusion: nondiabetic kidney disease (ICD-10 code list) ──
+    if (exclusionsHandle) {
+      exclusionsHandle.addRow({
+        type: "diagnosis", codingMethod: "icd10",
+        conceptId: "N04", conceptIds: ["N04", "N05.9", "Q61.2"],
+        descendants: false, label: "Nondiabetic kidney disease"
+      });
+    }
+
+    // ── Confounders: comorbidities (2+ dx, 30d apart) + kidney-protective drug classes (RxNorm) ──
+    if (confoundersHandle) {
+      confoundersHandle.addRow({
+        type: "diagnosis", conceptId: "40481087", conceptIds: ["40481087"],
+        codingMethod: "concept_id", descendants: true,
+        minCount: 2, minSpacingDays: 30, label: "hypertension"
+      });
+      confoundersHandle.addRow({
+        type: "diagnosis", conceptId: "315661", conceptIds: ["315661"],
+        codingMethod: "concept_id", descendants: true,
+        minCount: 2, minSpacingDays: 30, label: "cardiac_disease"
+      });
+      confoundersHandle.addRow({
+        type: "diagnosis", conceptId: "80809", conceptIds: ["80809"],
+        codingMethod: "concept_id", descendants: true, label: "acute_kidney_injury"
+      });
+      confoundersHandle.addRow({
+        type: "drug", codingMethod: "rxnorm",
+        conceptId: "29046", conceptIds: ["29046", "52175"],
+        descendants: true, label: "RAAS_inhibitor"
+      });
+      confoundersHandle.addRow({
+        type: "drug", codingMethod: "rxnorm",
+        conceptId: "1545653", conceptIds: ["1545653", "1373458", "1488564"],
+        descendants: true, label: "SGLT2_inhibitor"
+      });
+      confoundersHandle.addRow({
+        type: "drug", codingMethod: "rxnorm",
+        conceptId: "1991302", conceptIds: ["1991302", "1551291", "475968"],
+        descendants: true, label: "GLP1_RA"
+      });
+      confoundersHandle.addRow({
+        type: "drug", codingMethod: "rxnorm",
+        conceptId: "9997", conceptIds: ["9997", "298869", "2562811"],
+        descendants: true, label: "MRA"
+      });
+    }
+
+    // ── Covariates mirroring Fairview demographics / labs / utilisation ──
+    _exSetCovariates([
+      "age_at_index", "sex_concept_id", "race_concept_id", "ethnicity_concept_id",
+      "baseline_egfr", "baseline_creatinine", "baseline_bmi", "baseline_systolic_bp",
+      "prior_hospitalization_flag", "prior_er_visit_flag", "prior_outcome_history"
+    ]);
 
     if (typeof updateSelfCheck === "function") updateSelfCheck();
   }
@@ -533,8 +627,7 @@
     collectBlockData: collectBlockData,
     collectListData: collectListData,
     collectStudyDefinition: collectStudyDefinition,
-    applyDiabetesExample: applyDiabetesExample,
-    applyDiabetesLabExample: applyDiabetesLabExample
+    applyFairviewExample: applyFairviewExample
   };
 
 })();

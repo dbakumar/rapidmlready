@@ -238,10 +238,42 @@
           <div id="confoundersBlock"></div>
         </div>
 
-        <!-- Example buttons -->
-        <div class="flex flex-wrap gap-2 mb-4">
-          <button type="button" id="applyExampleDiabetesBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: Diabetes → Nephropathy</button>
-          <button type="button" id="applyExampleDiabetesLabBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">Example: Diabetes + eGFR → eGFR &lt; 30</button>
+        <!-- Worked example — Fairview-style Diabetic Nephropathy prediction -->
+        <div class="bg-gradient-to-br from-purple-50 to-white border border-purple-200 rounded-lg p-5 mb-4">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h3 class="text-sm font-bold text-purple-800">📋 Worked Example — Predicting Diabetic Nephropathy (Fairview AIM-AHEAD logic)</h3>
+              <p class="text-xs text-slate-600 mt-1">One click loads a complete, realistic study that mirrors the Fairview data-extraction logic: cohort, composite outcome, exclusions, comorbidity &amp; medication confounders, covariates, and censoring — a fast way to see a complex build.</p>
+            </div>
+            <button type="button" id="applyFairviewExampleBtn" class="flex-shrink-0 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-xs font-semibold transition-colors">Load Full Example ↓</button>
+          </div>
+          <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-600">
+            <div class="bg-white border border-slate-200 rounded p-3">
+              <p class="font-semibold text-slate-700 mb-1">🎯 Research question</p>
+              <p>Among adults (18+) with confirmed Type 2 Diabetes, who goes on to develop diabetic nephropathy within the follow-up window?</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded p-3">
+              <p class="font-semibold text-slate-700 mb-1">👥 Cohort entry</p>
+              <p>2+ Type 2 Diabetes diagnoses ≥30 days apart; age ≥18 at entry; study period 2016–2024.</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded p-3">
+              <p class="font-semibold text-slate-700 mb-1">🔬 Outcome (any confirmed path)</p>
+              <p>Creatinine &gt;1.4, eGFR &lt;60, or Cystatin C &gt;1.2 (each 2× ≥30 days apart), OR 2+ nephropathy diagnoses ≥30 days apart.</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded p-3">
+              <p class="font-semibold text-slate-700 mb-1">🚫 Exclusions</p>
+              <p>Nondiabetic kidney disease (ICD-10 N04, N05.9, Q61.2) — shows the code-list / ICD-10 entry mode.</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded p-3">
+              <p class="font-semibold text-slate-700 mb-1">⚖️ Confounders</p>
+              <p>Comorbidities (hypertension, cardiac disease, AKI) + kidney-protective drug classes (RAAS, SGLT2, GLP-1 RA, MRA via RxNorm).</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded p-3">
+              <p class="font-semibold text-slate-700 mb-1">📊 Covariates &amp; censoring</p>
+              <p>Age, sex, race, ethnicity, baseline eGFR/creatinine/BMI/SBP, prior hospitalisation/ER, prior outcome; death censoring on.</p>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-3 italic">Concept IDs are illustrative — verify against your OMOP CDM using the Athena search (right panel).</p>
         </div>
 
         <!-- Step navigation -->
@@ -537,11 +569,11 @@
     <!-- Core engine (generic, data-model-independent) -->
     <script src="core/generator.js?v=19"></script>
     <script src="core/dialects.js?v=19"></script>
-    <script src="core/evidence-ui.js?v=19"></script>
+    <script src="core/evidence-ui.js?v=21"></script>
 
     <!-- OMOP data model (concepts, covariates, censoring, compiler) -->
     <script src="omop/concepts.js?v=19"></script>
-    <script src="omop/covariates.js?v=19"></script>
+    <script src="omop/covariates.js?v=21"></script>
     <script src="omop/censoring.js?v=19"></script>
     <script src="omop/artifacts.js?v=19"></script>
 
@@ -549,7 +581,7 @@
     <script src="omop/compiler.js?v=19"></script>
 
     <!-- OMOP evidence adapter (after compiler + adapter-registry) -->
-    <script src="omop/evidence-sql.js?v=19"></script>
+    <script src="omop/evidence-sql.js?v=22"></script>
 
     <!-- Methodologies -->
     <script src="methodologies/longitudinal-prediction.js?v=19"></script>
@@ -563,6 +595,6 @@
     <script src="core/study-explainer.js?v=19"></script>
 
     <!-- Wizard UI controller (must be last - depends on everything above) -->
-    <script src="core/wizard-ui.js?v=19"></script>
+    <script src="core/wizard-ui.js?v=20"></script>
 </body>
 </html>
