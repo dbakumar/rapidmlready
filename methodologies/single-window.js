@@ -120,7 +120,7 @@
     var dbg = C.buildDebugHelpers(config, ctx);
     var windowExpr = buildWindowExpressions(config);
 
-    // Steps 1-5: concepts, cohort (shared)
+    // Step 1: concepts, cohort (shared)
     var conceptSteps = C.buildDebugConceptSteps(config, ctx, dbg);
     var cohortStep = C.buildDebugCohortStep(config, ctx, dbg);
 
@@ -132,7 +132,7 @@
     var anchorFirstIndexExpr = d.addDaysExpr(config.db, exposureExpr, windowExpr.baselineDays);
     var anchorStep = C.sqlLines([
       "",
-      "-- STEP 6: Build index anchor",
+      "-- STEP 2: Build index anchor",
       dbg.dropTemp("index_anchor"),
       dbg.createTempFromSelect(
         "index_anchor",
@@ -150,7 +150,7 @@
     // Step 7: single-window spine (methodology-specific, no nums)
     var spineStep = C.sqlLines([
       "",
-      "-- STEP 7: Build single-window spine (one row per patient)",
+      "-- STEP 3: Build single-window spine (one row per patient)",
       dbg.dropTemp("spine"),
       dbg.createTempFromSelect(
         "spine",
@@ -170,9 +170,9 @@
     ]);
 
     // Steps 8-10: outcome, censoring, final (shared)
-    var outcomeStep = C.buildDebugOutcomeStep(config, ctx, dbg, 8);
-    var censorStep  = C.buildDebugCensoringStep(config, ctx, dbg, 9, dbg.tmpName("spine"));
-    var finalStep   = C.buildDebugFinalStep(config, ctx, dbg, 10);
+    var outcomeStep = C.buildDebugOutcomeStep(config, ctx,     dbg, 4);
+        var censorStep  = C.buildDebugCensoringStep(config, ctx, dbg, 5, dbg.tmpName("spine"));
+        var finalStep   = C.buildDebugFinalStep(config, ctx, dbg, 6);
 
     return C.sqlLines([
       C.buildHeader(config, "Single Window DEBUG (one row per patient)"),

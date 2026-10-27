@@ -598,12 +598,12 @@ checkpoint. This allows running each step independently and inspecting
 intermediate results:
 
 ```sql
--- STEP 5: Build cohort
+-- STEP 1: Build cohort
 DROP TABLE IF EXISTS tmp_cohort;    -- or #tmp_cohort on SQL Server
 CREATE TEMP TABLE tmp_cohort AS ...;
 SELECT COUNT(*) AS cohort_size FROM tmp_cohort;
 
--- STEP 6: Build index anchor
+-- STEP 2: Build index anchor
 DROP TABLE IF EXISTS tmp_index_anchor;
 CREATE TEMP TABLE tmp_index_anchor AS ...;
 SELECT TOP 20 * FROM tmp_index_anchor ORDER BY person_id;
@@ -871,14 +871,14 @@ Create `methodologies/my-methodology.js`:
     var dbg = C.buildDebugHelpers(config, ctx);
     var baselineDays = String(Number(config.baselineDays) || 365);
 
-    // Steps 1-5 are shared (concepts + cohort)
+    // Step 1 is shared (concepts + cohort)
     var conceptSteps = C.buildDebugConceptSteps(config, ctx, dbg);
     var cohortStep = C.buildDebugCohortStep(config, ctx, dbg);
 
-    // Step 6: your anchor (shared)
+    // Step 2: your anchor (shared)
     var anchorStep = C.sqlLines([
       "",
-      "-- STEP 6: Build index anchor",
+      "-- STEP 2: Build index anchor",
       dbg.dropTemp("index_anchor"),
       dbg.createTempFromSelect(
         "index_anchor",
@@ -890,10 +890,10 @@ Create `methodologies/my-methodology.js`:
       dbg.selectTop(dbg.tmpName("index_anchor"), "person_id")
     ]);
 
-    // Step 7: YOUR SPINE as a temp table
+    // Step 3: YOUR SPINE as a temp table
     var spineStep = C.sqlLines([
       "",
-      "-- STEP 7: Build spine (your methodology)",
+      "-- STEP 3: Build spine (your methodology)",
       dbg.dropTemp("spine"),
       dbg.createTempFromSelect(
         "spine",
@@ -910,10 +910,10 @@ Create `methodologies/my-methodology.js`:
       "SELECT COUNT(*) AS spine_rows FROM " + dbg.tmpName("spine") + ";"
     ]);
 
-    // Steps 8-10: outcome, censoring, final (shared)
-    var outcomeStep = C.buildDebugOutcomeStep(config, ctx, dbg, 8);
-    var censorStep  = C.buildDebugCensoringStep(config, ctx, dbg, 9, dbg.tmpName("spine"));
-    var finalStep   = C.buildDebugFinalStep(config, ctx, dbg, 10);
+    // Steps 4-6: outcome, censoring, final (shared)
+    var outcomeStep = C.buildDebugOutcomeStep(config, ctx, dbg, 4);
+    var censorStep  = C.buildDebugCensoringStep(config, ctx, dbg, 5, dbg.tmpName("spine"));
+    var finalStep   = C.buildDebugFinalStep(config, ctx, dbg, 6);
 
     return C.sqlLines([
       C.buildHeader(config, "My Methodology DEBUG"),

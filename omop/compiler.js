@@ -301,7 +301,7 @@
     var allCTEs = conceptCTEs.concat([cohortCTE]).join(",\n");
     return sqlLines([
       "",
-      "-- STEP 5: Build evidence-based cohort (concept resolution + entry criteria)",
+      "-- STEP 1: Build evidence-based cohort (concept resolution + entry criteria)",
       dbg.dropTemp("cohort"),
       (isPostgres ? "CREATE TEMP TABLE " + dbg.tmpName("cohort") + " AS" : null),
       "WITH " + allCTEs,

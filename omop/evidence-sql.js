@@ -321,7 +321,7 @@
       ? "ancestor_concept_id = " + spec.numericIds[0]
       : "ancestor_concept_id IN (" + spec.numericIds.join(", ") + ")";
     return sqlLines([
-      "-- Descendants for " + prefix + " (" + row.type + ")",
+      "-- Descendant concepts for " + describeRowSubject(row) + " (rolled up via concept_ancestor).",
       prefix + "_concepts AS (",
       "  SELECT DISTINCT descendant_concept_id AS concept_id",
       "  FROM " + config.schema + ".concept_ancestor",
@@ -343,6 +343,28 @@
     }
     if (row.visitContext && row.visitContext !== "all") parts.push("in " + row.visitContext + " visits");
     return parts.join(", ") + ".";
+  }
+
+  /**
+   * Short noun phrase naming the specific events a row matches — used to make
+   * the generated SQL comments describe the actual criterion (e.g. the row's
+   * label "hypertension", or "lab (concept 3020564) > 1.4") instead of a
+   * generic, static description.
+   */
+  function describeRowSubject(row) {
+    if (row.label && String(row.label).trim()) {
+      return String(row.label).trim();
+    }
+    var method = normalizeCodingMethod(row);
+    var codes = (Array.isArray(row.conceptIds) && row.conceptIds.length)
+      ? row.conceptIds.join("/")
+      : (row.conceptId || "?");
+    var codeLabel = method === "concept_id" ? ("concept " + codes) : (method.toUpperCase() + " " + codes);
+    var subject = row.type + " (" + codeLabel + ")";
+    if ((row.type === "lab" || row.type === "observation") && row.operator && row.value) {
+      subject += " " + safeOperator(row.operator) + " " + safeNumericValue(row.value);
+    }
+    return subject;
   }
 
   function buildRowEventBaseQuery(config, row, prefix, windowSpec) {
@@ -453,14 +475,15 @@
     var minCount = rowMinCount(row);
     var spacingDays = rowMinSpacingDays(row);
     var distinctVisits = !!row.distinctVisits;
+    var subject = describeRowSubject(row);
 
     if (spacingDays > 0) {
       var diffExpr = dateDiffDaysExpr(config.db, "gapped_events.prev_event_date", "gapped_events.event_date");
       var spacingFlag = "CASE WHEN gapped_events.prev_event_date IS NOT NULL AND " + diffExpr + " >= " + spacingDays + " THEN 1 ELSE 0 END";
 
       return sqlLines([
-        "-- Persistence rule: keep persons with >= " + minCount + " qualifying event(s) that are",
-        "-- at least " + spacingDays + " day(s) apart (e.g. \"2 diagnoses 30+ days apart\").",
+        "-- Persistence rule for " + subject + ":",
+        "-- require >= " + minCount + " qualifying event(s) that are at least " + spacingDays + " day(s) apart.",
         "-- 'spaced_count' is a running tally of how many spaced events have occurred so far.",
         "SELECT spaced_events.person_id, MIN(spaced_events.event_date) AS event_date",
         "FROM (",
@@ -493,8 +516,8 @@
       ? "COUNT(DISTINCT matched_events.visit_occurrence_id)"
       : "COUNT(*)";
     var countComment = distinctVisits
-      ? "-- Frequency rule: keep persons with >= " + minCount + " matching event(s) on distinct visits."
-      : "-- Frequency rule: keep persons with >= " + minCount + " matching event(s).";
+      ? "-- Frequency rule for " + subject + ": require >= " + minCount + " matching event(s) on distinct visits."
+      : "-- Frequency rule for " + subject + ": require >= " + minCount + " matching event(s).";
 
     return sqlLines([
       countComment,
@@ -523,8 +546,8 @@
     var aggQuery = buildRowEventAggQuery(config, row, baseQuery);
     return sqlLines([
       "EXISTS (",
-      "    -- TRUE when the person has a qualifying " + row.type + " match inside the",
-      "    -- [" + startCol + " .. " + endCol + "] window for this spine row.",
+      "    -- TRUE when the person has a qualifying " + describeRowSubject(row) + " match",
+      "    -- inside the [" + startCol + " .. " + endCol + "] window for this spine row.",
       "    SELECT 1",
       "    FROM (",
       "      " + aggQuery,
@@ -571,7 +594,7 @@
     // Single row — inline directly, renaming event_date to expected alias
     if (rows.length === 1) {
       return sqlLines([
-        "-- " + cteName + ": a single evidence row (" + rows[0].type + ").",
+        "-- " + cteName + ": " + describeRowSubject(rows[0]) + " (single evidence row).",
         "-- Produces one qualifying date (" + dateCol + ") per person.",
         cteName + " AS (",
         "  SELECT person_id, event_date AS " + dateCol + " FROM (",
@@ -587,7 +610,7 @@
         return "    SELECT person_id, event_date FROM " + blockPrefix + "_r" + i + "_events";
       });
       return sqlLines([
-        "-- " + cteName + ": ANY of " + rows.length + " evidence rows qualifies (logical OR).",
+        "-- " + cteName + ": ANY of " + rows.length + " evidence rows qualifies (logical OR): " + rows.map(describeRowSubject).join(" | ") + ".",
         "-- Combine every row's qualifying persons and take their EARLIEST date as " + dateCol + ".",
         cteName + " AS (",
         "  SELECT person_id, MIN(event_date) AS " + dateCol,
@@ -604,7 +627,7 @@
       return "    SELECT person_id, event_date, " + i + " AS row_idx FROM " + blockPrefix + "_r" + i + "_events";
     });
     return sqlLines([
-      "-- " + cteName + ": ALL " + rows.length + " evidence rows must qualify (logical AND).",
+      "-- " + cteName + ": ALL " + rows.length + " evidence rows must qualify (logical AND): " + rows.map(describeRowSubject).join(" & ") + ".",
       "-- A person is kept only if they appear for every distinct row_idx; the qualifying",
       "-- date (" + dateCol + ") is the LATEST across rows (the date all criteria are first met).",
       cteName + " AS (",

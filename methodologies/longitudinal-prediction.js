@@ -649,7 +649,7 @@
     var numsCTE = d.seriesCTE(config.db, "nums", 20);
     var isPostgres = ctx.isPostgres;
 
-    // Steps 1-5: concepts, cohort (shared with compiler)
+    // Step 1: concepts, cohort (shared with compiler)
     var conceptSteps = C.buildDebugConceptSteps(config, ctx, dbg);
     var cohortStep = C.buildDebugCohortStep(config, ctx, dbg);
 
@@ -660,7 +660,7 @@
     var anchorFirstIndexExpr = d.addDaysExpr(config.db, exposureExpr, windowExpr.baselineDays);
     var anchorStep = C.sqlLines([
       "",
-      "-- STEP 6: Build index anchor (respect study start and baseline offset)",
+      "-- STEP 2: Build index anchor (respect study start and baseline offset)",
       dbg.dropTemp("index_anchor"),
       dbg.createTempFromSelect(
         "index_anchor",
@@ -678,7 +678,7 @@
     // Step 7: repeated yearly spine (methodology-specific)
     var spineStep = C.sqlLines([
       "",
-      "-- STEP 7: Build repeated yearly spine rows",
+      "-- STEP 3: Build repeated yearly spine rows",
       dbg.dropTemp("spine"),
       (isPostgres
         ? C.sqlLines([
@@ -717,9 +717,9 @@
     ]);
 
     // Steps 8-10: outcome, censoring, final (shared)
-    var outcomeStep = C.buildDebugOutcomeStep(config, ctx, dbg, 8);
-    var censorStep  = C.buildDebugCensoringStep(config, ctx, dbg, 9, dbg.tmpName("spine"));
-    var finalStep   = C.buildDebugFinalStep(config, ctx, dbg, 10);
+    var outcomeStep = C.buildDebugOutcomeStep(config, ctx,     dbg, 4);
+        var censorStep  = C.buildDebugCensoringStep(config, ctx, dbg, 5, dbg.tmpName("spine"));
+        var finalStep   = C.buildDebugFinalStep(config, ctx, dbg, 6);
 
     return C.sqlLines([
       C.buildHeader(config, "Longitudinal Prediction DEBUG (repeated-index spine)"),
