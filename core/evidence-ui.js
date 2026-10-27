@@ -533,7 +533,7 @@
         type: "diagnosis", conceptId: "201826", conceptIds: ["201826"],
         codingMethod: "concept_id", descendants: true,
         minCount: 2, minSpacingDays: 30,
-        label: "Type 2 Diabetes (2+ dx, 30d apart)"
+        label: "Type 2 Diabetes"
       });
     }
 
@@ -544,22 +544,22 @@
       outcomeHandle.addRow({
         type: "lab", conceptId: "3020564", conceptIds: ["3020564"],
         codingMethod: "concept_id", operator: ">", value: "1.4",
-        minCount: 2, minSpacingDays: 30, label: "Creatinine > 1.4 (2x, 30d)"
+        minCount: 2, minSpacingDays: 30, label: "Creatinine > 1.4"
       });
       outcomeHandle.addRow({
         type: "lab", conceptId: "3020460", conceptIds: ["3020460"],
         codingMethod: "concept_id", operator: "<", value: "60",
-        minCount: 2, minSpacingDays: 30, label: "eGFR < 60 (2x, 30d)"
+        minCount: 2, minSpacingDays: 30, label: "eGFR < 60"
       });
       outcomeHandle.addRow({
         type: "lab", conceptId: "3025214", conceptIds: ["3025214"],
         codingMethod: "concept_id", operator: ">", value: "1.2",
-        minCount: 2, minSpacingDays: 30, label: "Cystatin C > 1.2 (2x, 30d)"
+        minCount: 2, minSpacingDays: 30, label: "Cystatin C > 1.2"
       });
       outcomeHandle.addRow({
         type: "diagnosis", conceptId: "443767", conceptIds: ["443767"],
         codingMethod: "concept_id", descendants: true,
-        minCount: 2, minSpacingDays: 30, label: "Diabetic nephropathy dx (2x, 30d)"
+        minCount: 2, minSpacingDays: 30, label: "Diabetic nephropathy dx"
       });
     }
 
